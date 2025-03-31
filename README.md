@@ -1,174 +1,228 @@
-# Options Volatility Surface Calibration Tool
+# Put-Call Parity Discount Rate Calibration Tool
 
 ## Overview
 
-This application calibrates discount rates from option prices using put-call parity relationships. These rates are essential inputs for volatility surface calibration, ensuring that at-the-money implied volatilities of puts and calls match at each tenor. The tool solves for a term structure of rates that minimize implied volatility differences between corresponding put and call options.
+This application extracts, calibrates, and analyzes discount rates from option prices using put-call parity. It addresses a critical problem in options trading and volatility surface calibration: theoretical risk-free rates rarely align with market-implied discount rates across option expiries. The calibrated rates enable accurate implied volatility calculations and proper volatility surface construction.
 
-## Core Functionality
+## Technical Background
 
-The application performs the following key functions:
+### Put-Call Parity and Discount Rates
 
-1. **Options Data Processing**: Ingests options data from CSV files or directly from Yahoo Finance
-2. **Discount Rate Calibration**: Identifies put-call option pairs and optimizes discount rates to satisfy put-call parity
-3. **Implied Volatility Calculation**: Computes implied volatilities using the calibrated discount rates
-4. **Term Structure Construction**: Builds a complete discount rate term structure across all option tenors
+Put-call parity is a fundamental arbitrage relationship in option pricing that must hold in efficient markets:
 
-## Usage
+```
+C - P = S * e^(-q*T) - K * e^(-r*T)
+```
+
+Where:
+- C = Call price
+- P = Put price
+- S = Underlying price
+- K = Strike price
+- r = Risk-free interest rate
+- q = Dividend/repo rate
+- T = Time to expiry in years
+
+By observing market prices of put-call pairs at equivalent strikes, we can solve for the discount rate (r) that satisfies this relationship. This market-implied rate typically varies across different option expiries, creating a term structure that more accurately reflects trading conditions than theoretical rates.
+
+## Architecture
+
+The application follows a modular design with specialized components:
+
+1. **Interfaces**:
+   - **CLI Interface** (`calibrate.py`): Command-line entry point
+   - **Class Interface** (`voldiscount.py`): Object-oriented wrapper for programmatic use
+   - **API Interface** (`calibration_api.py`): FastAPI-based REST endpoints
+
+2. **Core Components**:
+   - **Option Data Extraction** (`option_extractor.py`): Fetches option chains from Yahoo Finance
+   - **Black-Scholes Pricing** (`black_scholes.py`): Option pricing and implied volatility calculations
+   - **Put-Call Parity** (`pcp.py`): Implementation of parity relationships
+   - **Utility Functions** (`utils.py`): Data standardization and processing
+
+3. **Calibration Engine**:
+   - **Direct Calibration** (`direct.py`): Per-tenor discount rate optimization
+   - **Forward Pricing** (`forward_pricing.py`): Forward price calculation
+   - **Interpolation** (`interpolation.py`): Rate interpolation for missing expiries
+   - **Pair Selection** (`pair_selection.py`): Optimal put-call pair identification
+
+4. **Configuration**:
+   - **Centralized Parameters** (`config.py`): Default settings and constraints
+
+## Implementation Details
+
+### Discount Rate Calibration Algorithm
+
+The direct calibration process follows these steps:
+
+1. **Option Pair Selection**: For each expiry, identify put-call pairs with identical or similar strikes.
+   - For exact strike matches: Use identical strikes for perfect parity.
+   - For approximate matches: Use close strike pairs below a configurable threshold.
+   - Weight pairs by liquidity (volume/open interest) and ATM proximity.
+
+2. **Rate Optimization**: For each expiry, determine the discount rate that minimizes implied volatility differences between put-call pairs:
+   ```python
+   def objective_function(rate):
+       put_iv = implied_volatility(put_price, S, K, T, rate, 'put')
+       call_iv = implied_volatility(call_price, S, K, T, rate, 'call')
+       return abs(put_iv - call_iv)
+   ```
+
+3. **Forward Price Calculation**: Derive forward prices from calibrated discount rates:
+   ```
+   Forward = Strike + (Call - Put) / discount_factor
+   ```
+
+4. **Term Structure Interpolation**: For expiries without sufficient option data:
+   - Linear interpolation for intermediate expiries
+   - Extrapolation for near and far expiries
+
+### Implied Volatility Calculation
+
+After discount rate calibration, the tool computes implied volatilities for all options using the calibrated term structure:
+
+1. Map each option to its expiry-specific discount rate
+2. Calculate implied volatility using the Black-Scholes model with the proper discount rate
+3. Add forward-price-based moneyness metrics for accurate volatility surface construction
+
+## Usage Guide
 
 ### Command Line Interface
 
-The primary entry point is `main.py`, which supports both file-based and ticker-based calibration:
-
 ```bash
-# Calibrate from a CSV file
-python main.py --filename options_data.csv --price 100.0
-
-# Calibrate from Yahoo Finance
-python main.py --ticker AAPL --min-days 7 --min-volume 10 --save
-
-# Get help on available parameters
-python main.py --help
+python calibrate.py --ticker AAPL --price 175.0 --save
 ```
 
-#### Key Command Line Parameters
+Key parameters:
+- `--filename`: Path to CSV with option data (alternative to ticker)
+- `--ticker`: Stock symbol for fetching live option data
+- `--price`: Underlying price (optional, auto-fetched if not provided)
+- `--rate`: Initial discount rate guess (default 0.05)
+- `--min-days`: Minimum days to expiry (default 7)
+- `--min-volume`: Minimum option volume (default 10)
+- `--save`: Save results to CSV files
+- `--monthlies`: Use only standard monthly expirations (default True)
+- `--all-expiries`: Use all expiry dates (overrides --monthlies)
 
-| Parameter | Description |
-|-----------|-------------|
-| `--filename` | Path to CSV file with options data |
-| `--ticker` | Stock ticker symbol for Yahoo Finance data |
-| `--price` | Underlying asset price (optional, will be estimated if not provided) |
-| `--rate` | Initial discount rate guess (default: 0.05) |
-| `--min-days` | Minimum days to expiry when fetching from ticker (default: 7) |
-| `--min-volume` | Minimum volume when fetching from ticker (default: 10) |
-| `--save` | Save results to CSV files |
-| `--debug` | Enable detailed debug output |
-| `--monthlies` | Use only standard monthly options (3rd Friday) (default: true) |
-| `--all-expiries` | Use all available expiry dates (overrides `--monthlies`) |
+### Class Interface
+
+```python
+from voldiscount import VolDiscount
+
+# Initialize with ticker
+vd = VolDiscount(ticker="AAPL", underlying_price=175.0, save_output=True)
+
+# Access results
+term_structure = vd.get_term_structure()
+option_data = vd.get_data_with_rates()
+forward_prices = vd.get_forward_prices()
+```
 
 ### API Interface
 
-The application also provides a FastAPI-based web API for integration with other systems:
+The application provides a FastAPI-based REST API with two main endpoints:
 
-```
-# Start the API server
-uvicorn calibration_api:app --reload
-```
+1. **CSV Upload Calibration**:
+   ```
+   POST /csvcalibrate
+   ```
+   Upload option data as CSV with calibration parameters.
 
-#### API Endpoints
+2. **Ticker-Based Calibration**:
+   ```
+   GET /voldiscount?ticker=AAPL&underlying_price=175.0
+   ```
+   Fetches live data and returns calibrated discount rates and implied volatilities.
 
-1. **POST /api/calibrate**
-   - Calibrates options data from an uploaded CSV file
-   - Parameters:
-     - `file`: CSV file with options data
-     - `params`: JSON string with calibration parameters
-
-2. **POST /api/calibrate-ticker**
-   - Calibrates options data fetched from Yahoo Finance
-   - Parameters:
-     - `ticker`: Stock ticker symbol
-     - `underlying_price`: (Optional) Override for underlying price
-     - `params`: JSON string with calibration parameters
-
-3. **GET /health**
-   - Health check endpoint for monitoring
-
-#### Calibration Parameters
-
-The `params` JSON object accepts the following fields:
-
+Response format:
 ```json
 {
-  "underlying_price": 100.0,
-  "initial_rate": 0.05,
-  "max_strike_diff_pct": 0.05,
-  "min_option_price": 0.0,
-  "min_options_per_expiry": 2,
-  "consider_volume": false,
-  "min_pair_volume": 0,
-  "best_pair_only": false
+  "term_structure": [
+    {
+      "Expiry": "2023-04-21",
+      "Days": 30,
+      "Years": 0.0822,
+      "Discount Rate": 0.0485,
+      "Forward Price": 176.23,
+      "Forward Ratio": 1.0070
+    },
+    ...
+  ],
+  "implied_volatilities": [
+    {
+      "Contract Symbol": "AAPL230421C00170000",
+      "Expiry": "2023-04-21",
+      "Strike": 170.0,
+      "Option Type": "call",
+      "Last Price": 7.85,
+      "Implied Volatility": 0.2368,
+      "Discount Rate": 0.0485,
+      "Moneyness Forward": -0.0355
+    },
+    ...
+  ]
 }
 ```
 
-## Input Data Format
+## Configuration
 
-The CSV input file should contain the following columns:
-
-| Column | Description |
-|--------|-------------|
-| Expiry | Option expiration date |
-| Last Trade Date | Date of last trade (for reference date) |
-| Strike | Option strike price |
-| Option Type | `call` or `put` |
-| Last Price | Option price |
-| Volume | (Optional) Trading volume |
-| Open Interest | (Optional) Open interest |
-
-## Output
-
-The calibration process produces:
-
-1. **Term Structure**: Discount rate for each tenor, with method and diagnostic information
-2. **Implied Volatilities**: Implied volatilities calculated for all options using the calibrated term structure
-
-## Technical Implementation
-
-### Architecture
-
-The application is organized into modular components:
-
-- `calibration/`: Contains rate calibration algorithms
-- `core/`: Core mathematical functions and utilities
-- `config/`: Configuration parameters
-- API endpoints for web integration
-
-### Calibration Methods
-
-The primary calibration method is direct calibration, which:
-
-1. Identifies ATM representative option pairs for each expiry date
-2. Optimizes discount rates to minimize implied volatility differences for equal strikes
-3. Uses put-call parity relationships for different strikes
-4. Produces a point estimate for each tenor in the term structure
-
-### Dependencies
-
-Required Python packages:
-
-```
-numpy>=2.2.3
-pandas>=2.2.3
-scipy>=1.15.2
-yfinance>=0.2.54
-fastapi>=0.115.11
-uvicorn>=0.34.0
-python-multipart>=0.0.20
-pydantic>=2.10.6
-requests>=2.32.3
-```
-
-## Limitations
-
-1. Quality of calibration depends on the quality and liquidity of input option data
-2. Rate calibration is most reliable for tenors with liquid ATM options
-3. Yahoo Finance data may have limitations for certain symbols or market conditions
-
-## Example Usage
-
-### Python API
+The application uses a centralized configuration (`config.py`) with sensible defaults:
 
 ```python
-from main import main
-
-# Run calibration with custom parameters
-term_structure, iv_df, raw_df, _, _, _ = main(
-    ticker="SPY",
-    underlying_price=430.0,
-    initial_rate=0.04,
-    min_days=7,
-    min_volume=10,
-    debug=True
-)
-
-# Access calibrated rates
-print(term_structure[['expiry_date', 'days', 'years', 'discount_rate']])
+DEFAULT_PARAMS = {
+    # Pricing parameters
+    "initial_rate": 0.05,
+    "min_rate": 0.0,
+    "max_rate": 0.2,
+    
+    # Option selection parameters
+    "max_strike_diff_pct": 0.05,
+    "min_option_price": 0.0,
+    "min_options_per_expiry": 2,
+    "volatility_lower_bound": 0.001,
+    "volatility_upper_bound": 10,
+    
+    # Extraction parameters
+    "min_days": 7,
+    "min_volume": 0,
+    
+    # Forward Pricing
+    "min_forward_ratio": 0.5,
+    "max_forward_ratio": 2.0,
+    
+    # Boolean flags
+    "debug": True,
+    "save_output": False,
+    "monthlies": True,
+}
 ```
+
+These parameters can be overridden through command-line arguments, class initialization parameters, or API request parameters.
+
+## Practical Applications
+
+The calibrated discount rates and implied volatilities enable:
+
+1. **Accurate Volatility Surface Construction**: By using proper discount rates, the volatility surface better reflects true market conditions.
+
+2. **Arbitrage Detection**: Significant deviations between put and call implied volatilities may indicate trading opportunities.
+
+3. **Forward Price Analysis**: The term structure of forward prices provides insights into market expectations for dividends and financing costs.
+
+4. **Risk-Free Rate Implied by Options**: The calibrated rates can be compared with Treasury yields to understand market financing conditions.
+
+## Example Output
+
+Term Structure:
+```
+Expiry      Days    Years   Discount Rate    Forward Price   Forward Ratio
+2023-04-21  30      0.0822  0.0485           176.23          1.0070
+2023-05-19  58      0.1589  0.0492           176.85          1.0106
+2023-06-16  86      0.2356  0.0498           177.56          1.0146
+2023-07-21  121     0.3315  0.0504           178.45          1.0197
+2023-09-15  177     0.4849  0.0512           179.85          1.0277
+2023-12-15  268     0.7342  0.0525           182.24          1.0414
+2024-06-21  457     1.2521  0.0540           187.65          1.0723
+```
+
+This output shows the term structure of discount rates increasing with time to expiry, and forward prices reflecting the market's expectations for future dividends and financing costs.
