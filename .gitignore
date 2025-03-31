@@ -1,4 +1,10 @@
-workings
+Workings
+pypi
+pypi_toml
+tests
+**/.ipynb_checkpoints
+**/__pycache__
+**/*.pyc
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
