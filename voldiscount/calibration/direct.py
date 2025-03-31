@@ -43,6 +43,8 @@ def direct_discount_rate_calibration(df, S, **kwargs):
 
     print("Performing direct discount rate calibration with ATM representative pairs")
     
+    print(df.columns)
+    print(params['reference_date'])
     # Filter by reference date if specified
     if 'Last Trade Date' in df.columns and params['reference_date'] is not None:
         # Convert reference_date to datetime if it's a string
@@ -52,13 +54,13 @@ def direct_discount_rate_calibration(df, S, **kwargs):
         # Ensure reference_date is datetime
         params['reference_date'] = pd.to_datetime(params['reference_date'])
         
-        # Filter to options traded on or before the reference date
-        filtered_df = df[df['Last Trade Date'] <= params['reference_date']].copy()
+        # Filter to options traded on or after the reference date
+        filtered_df = df[df['Last Trade Date'] >= params['reference_date']].copy()
 
         filtered_count = len(df) - len(filtered_df)
         if filtered_count > 0:
-            print(f"Filtered out {filtered_count} options with trade dates after {params['reference_date']}")
-        print(f"Using {len(filtered_df)} options traded on or before {params['reference_date']}")
+            print(f"Filtered out {filtered_count} options with trade dates before {params['reference_date']}")
+        print(f"Using {len(filtered_df)} options traded on or after {params['reference_date']}")
         
         # Use filtered dataframe for further processing
         df = filtered_df
@@ -349,10 +351,10 @@ def apply_interpolation(df_term_structure, df_original, missing_expiries):
             days = days_lookup[expiry]
             years = years_lookup[expiry]
             
-            if days < df_term_structure['days'].min():
+            if days < df_term_structure['Days'].min():
                 # Extrapolate for early dates
                 df_term_structure = extrapolate_early(df_term_structure, expiry, days, years)
-            elif days > df_term_structure['days'].max():
+            elif days > df_term_structure['Days'].max():
                 # Extrapolate for later dates
                 df_term_structure = extrapolate_late(df_term_structure, expiry, days, years)
             else:

@@ -19,6 +19,7 @@ DEFAULT_PARAMS = {
     'max_iterations': 50,
     "max_strike_diff_pct": 0.05,    # Maximum strike difference percentage
     "min_option_price": 0.0,        # Minimum option price
+    'min_options_per_type': 3,  # Minimum options of each type (puts/calls) per expiry
     "min_options_per_expiry": 2,    # Minimum options required per type (puts/calls)
     "volatility_lower_bound": 0.001,
     "volatility_upper_bound": 10,

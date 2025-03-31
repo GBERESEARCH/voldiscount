@@ -48,13 +48,10 @@ def select_option_pairs(df, S, **kwargs):
     if not df['Option Type'].str.lower().isin(['call', 'put']).all():
         df['Option Type'] = df['Option Type'].str.lower()
     
-    # Check for volume/open interest columns
-    has_volume = 'Volume' in df.columns
-    has_open_interest = 'Open Interest' in df.columns
-
     # Add diagnostic counters
     total_expiries = 0
     expiries_with_options = 0
+    expiries_with_min_options = 0
     expiries_with_common_strikes = 0
     expiries_with_valid_pairs = 0
     
@@ -76,6 +73,13 @@ def select_option_pairs(df, S, **kwargs):
             continue
         
         expiries_with_options += 1
+
+        # Check for minimum number of options per type (NEW CHECK)
+        if len(puts) < params['min_options_per_type'] or len(calls) < params['min_options_per_type']:
+            print(f"Skipping expiry {expiry} - insufficient options (need {params['min_options_per_type']} of each type, found {len(puts)} puts, {len(calls)} calls)")
+            continue
+            
+        expiries_with_min_options += 1
 
         pairs = []
         
@@ -173,6 +177,7 @@ def select_option_pairs(df, S, **kwargs):
     print(f"Diagnostics:")
     print(f"  Total expiries: {total_expiries}")
     print(f"  Expiries with both puts and calls: {expiries_with_options}")
+    print(f"  Expiries with min. {params['min_options_per_type']} of each option type: {expiries_with_min_options}")
     print(f"  Expiries with common strikes: {expiries_with_common_strikes}")
     print(f"  Expiries with valid pairs after all filtering: {expiries_with_valid_pairs}")
         

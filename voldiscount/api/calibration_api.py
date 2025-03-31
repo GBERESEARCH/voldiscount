@@ -11,7 +11,7 @@ import io
 import json
 from datetime import datetime, date
 
-from main import create_option_data_with_rates
+from calibrate import create_option_data_with_rates
 from core.option_extractor import extract_option_data
 from core.utils import standardize_datetime
 from calibration.direct import direct_discount_rate_calibration
@@ -96,19 +96,18 @@ async def calibrate_options(
             last_trade_dates = df['Last Trade Date']
             reference_date = last_trade_dates.max()
             
-            df['Days_To_Expiry'] = (df['Expiry'] - reference_date).dt.days
-            df['Years_To_Expiry'] = df['Days_To_Expiry'] / 365.0
+            df['Days To Expiry'] = (df['Expiry'] - reference_date).dt.days
+            df['Years To Expiry'] = df['Days To Expiry'] / 365.0
         else:
             # Handle case where Last Trade Date is missing
             reference_date = datetime.now()
-            df['Days_To_Expiry'] = (df['Expiry'] - pd.Timestamp(reference_date)).dt.days
-            df['Years_To_Expiry'] = df['Days_To_Expiry'] / 365.0
+            df['Days To Expiry'] = (df['Expiry'] - pd.Timestamp(reference_date)).dt.days
+            df['Years To Expiry'] = df['Days To Expiry'] / 365.0
         
         # Extract parameters
         S = calibration_input.underlying_price
         
         # Create calibration parameters dictionary from the model
-        # This ensures all parameters are properly passed through
         calibration_params = calibration_input.dict()
         del calibration_params['underlying_price']  # Remove S as it's passed separately
        
@@ -119,19 +118,34 @@ async def calibrate_options(
             raise HTTPException(status_code=400, detail="Failed to build term structure")
         
         # Standardize datetime in term structure
-        term_structure = standardize_datetime(term_structure, columns=['expiry_date'])
+        term_structure = standardize_datetime(term_structure, columns=['Expiry'])
+
+        # Extract forward prices from term structure (matching get_discount_rates)
+        calibrated_forwards = {row['Expiry']: row['Forward Price'] 
+                      for _, row in term_structure.iterrows() 
+                      if 'Forward Price' in term_structure.columns}
         
         # Calculate implied volatilities using the calibrated term structure
-        # iv_df = calculate_implied_volatilities(df, S, term_structure)
         iv_df = create_option_data_with_rates(df, S, term_structure, reference_date)
-
-        # Convert to dict then use the custom encoder
-        ts_data = json.loads(json.dumps(term_structure.to_dict(orient='list'), cls=NumpyDateEncoder))
-        iv_data = json.loads(json.dumps(iv_df.to_dict(orient='list'), cls=NumpyDateEncoder))
         
+        # Add forward price and moneyness data to match get_discount_rates
+        iv_df['Forward Price'] = iv_df['Expiry'].map(lambda x: calibrated_forwards.get(x, S))
+        iv_df['Forward Ratio'] = iv_df['Forward Price'] / S #type: ignore
+        iv_df['Moneyness Forward'] = iv_df['Strike'] / iv_df['Forward Price'] - 1.0
+        
+        # Convert to dict then use the custom encoder
+        # First, create the same output structure as get_discount_rates
+        ts_data = json.loads(json.dumps(term_structure.to_dict('records'), cls=NumpyDateEncoder))
+        ts_data_list = json.loads(json.dumps(term_structure.to_dict(orient='list'), cls=NumpyDateEncoder))
+        iv_data = json.loads(json.dumps(iv_df.to_dict('records'), cls=NumpyDateEncoder))
+        iv_data_list = json.loads(json.dumps(iv_df.to_dict(orient='list'), cls=NumpyDateEncoder))
+        
+        # Return in the same format as get_discount_rates
         return {
             "term_structure": ts_data,
-            "implied_volatilities": iv_data
+            "term_structure_array": ts_data_list,
+            "implied_volatilities": iv_data,
+            "implied_volatilities_array": iv_data_list
         }
         
     except Exception as e:

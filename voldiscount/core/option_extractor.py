@@ -87,7 +87,7 @@ def extract_option_data(ticker, **kwargs):
         
         # If no data found, return early
         if all_options.empty:
-            return None, None, None, spot
+            return None, None, spot
         
         # Rename columns to more readable format
         all_options = all_options.rename(columns={
@@ -109,13 +109,13 @@ def extract_option_data(ticker, **kwargs):
             )
         
         # Format for output
-        formatted_data = _format_output(data=processed_data)
+        # formatted_data = _format_output(data=processed_data)
         
-        return all_options, processed_data, formatted_data, spot
+        return all_options, processed_data, spot
         
     except Exception as e:
         print(f"Error extracting option data for {ticker}: {e}")
-        return None, None, None, None
+        return None, None, None
 
 def _process_option_data(data, **kwargs):
     """
@@ -223,7 +223,7 @@ def from_paste_data(text_data):
         
     return df
 
-def create_option_data_with_rates(df, S, term_structure, reference_date):
+def create_option_data_with_rates(df, S, term_structure, reference_date, expiries_to_exclude=None):
     """
     Create a dataframe where each row is an option with the appropriate discount rate.
     """
@@ -236,21 +236,36 @@ def create_option_data_with_rates(df, S, term_structure, reference_date):
     
     for _, row in df.iterrows():
         expiry = row['Expiry']
+
+        # Skip if expiry is in the exclusion list
+        if expiries_to_exclude is not None and expiry in expiries_to_exclude:
+            continue
+
+        # Skip if trade date is before the reference date
+        if pd.to_datetime(row['Last Trade Date']) < pd.to_datetime(reference_date):
+            continue
         
         # Find matching discount rate
         if expiry in rate_lookup:
             discount_rate = rate_lookup[expiry]
             
             option_data.append({
+                'Contract Symbol': row['contractSymbol'],
                 'Reference Date': reference_date,
+                'Last Trade Date': row['Last Trade Date'], 
                 'Spot Price': S,
                 'Expiry': expiry,
                 'Days': row['Days To Expiry'],
                 'Years': row['Years To Expiry'],
-                'Strike': row['Strike'],  # Now using capitalized "Strike"
+                'Strike': row['Strike'],  
                 'Option Type': row['Option Type'],
-                'Price': row['Last Price'],
-                'Discount Rate': discount_rate
+                'Last Price': row['Last Price'],
+                'Bid': row['Bid'],
+                'Ask': row['Ask'],
+                'Open Interest': row['Open Interest'],
+                'Volume': row['Volume'],
+                'Discount Rate': discount_rate,
+                'Implied Volatility': row['Implied Volatility']
             })
     
     # Create dataframe of option data with rates
