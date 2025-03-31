@@ -2,11 +2,10 @@ import pandas as pd
 import numpy as np
 import calendar
 from scipy.optimize import minimize_scalar
-from core.black_scholes import implied_volatility
-
-from calibration.interpolation import interpolate_rate, extrapolate_early, extrapolate_late
-from calibration.pair_selection import select_option_pairs
-from config.config import DEFAULT_PARAMS
+from voldiscount.core.black_scholes import implied_volatility
+from voldiscount.calibration.interpolation import interpolate_rate, extrapolate_early, extrapolate_late
+from voldiscount.calibration.pair_selection import select_option_pairs
+from voldiscount.config.config import DEFAULT_PARAMS
 from typing import Dict, Any
 
 def direct_discount_rate_calibration(df, S, **kwargs):

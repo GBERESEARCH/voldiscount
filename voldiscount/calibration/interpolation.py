@@ -1,5 +1,5 @@
 import pandas as pd
-from config.config import DEFAULT_PARAMS
+from voldiscount.config.config import DEFAULT_PARAMS
 from typing import Dict, Any
 
 def interpolate_rate(df, expiry_date, days, years):

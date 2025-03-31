@@ -3,8 +3,8 @@ Put-call parity related functions
 """
 import numpy as np
 import pandas as pd
-from core.black_scholes import implied_volatility
-from config.config import DEFAULT_PARAMS
+from voldiscount.core.black_scholes import implied_volatility
+from voldiscount.config.config import DEFAULT_PARAMS
 from typing import Dict, Any
 
 def calculate_q_from_pcp(put_price, call_price, strike, S, T, r):

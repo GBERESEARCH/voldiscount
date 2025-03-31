@@ -4,10 +4,10 @@ Main CLI interface for the PCP calibration tool
 import pandas as pd
 import argparse
 import time
-from core.utils import load_options_data, standardize_datetime
-from calibration.direct import direct_discount_rate_calibration
-from core.option_extractor import extract_option_data, create_option_data_with_rates
-from config.config import DEFAULT_PARAMS
+from voldiscount.core.utils import load_options_data, standardize_datetime
+from voldiscount.calibration.direct import direct_discount_rate_calibration
+from voldiscount.core.option_extractor import extract_option_data, create_option_data_with_rates
+from voldiscount.config.config import DEFAULT_PARAMS
 from typing import Dict, Any
 
 

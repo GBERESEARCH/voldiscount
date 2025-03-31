@@ -11,13 +11,11 @@ import io
 import json
 from datetime import datetime, date
 
-from calibrate import create_option_data_with_rates
-from core.option_extractor import extract_option_data
-from core.utils import standardize_datetime
-from calibration.direct import direct_discount_rate_calibration
-from core.pcp import calculate_implied_volatilities
-from calibration.forward_pricing import calculate_forward_prices
-from config.config import DEFAULT_PARAMS  # Import central configuration
+from voldiscount.calibrate import create_option_data_with_rates
+from voldiscount.calibration.direct import direct_discount_rate_calibration
+from voldiscount.config.config import DEFAULT_PARAMS  # Import central configuration
+from voldiscount.core.option_extractor import extract_option_data
+from voldiscount.core.utils import standardize_datetime
 
 app = FastAPI(title="Options Volatility API")
 
@@ -217,7 +215,7 @@ async def get_discount_rates(request: Request):
         print(f"Calibration parameters: {calibration_params}")
         
         # Fetch option data from yFinance
-        _, _, df, fetched_price = extract_option_data(
+        _, df, fetched_price = extract_option_data(
             ticker, 
             min_days=min_days, 
             min_volume=min_volume

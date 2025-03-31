@@ -6,7 +6,7 @@ import pandas as pd
 import numpy as np
 import time
 import yfinance as yf
-from config.config import DEFAULT_PARAMS
+from voldiscount.config.config import DEFAULT_PARAMS
 from typing import Dict, Any
 
 def extract_option_data(ticker, **kwargs):
