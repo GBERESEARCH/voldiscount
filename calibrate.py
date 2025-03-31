@@ -2,19 +2,16 @@
 Main CLI interface for the PCP calibration tool
 """
 import pandas as pd
-import numpy as np
 import argparse
 import time
 from core.utils import load_options_data, standardize_datetime
 from calibration.direct import direct_discount_rate_calibration
-from calibration.forward_pricing import calculate_forward_prices
-from core.pcp import calculate_implied_volatilities
 from core.option_extractor import extract_option_data, create_option_data_with_rates
 from config.config import DEFAULT_PARAMS
 from typing import Dict, Any
 
 
-def main(filename=None, ticker=None, underlying_price=None, **kwargs):
+def calibrate(filename=None, ticker=None, underlying_price=None, **kwargs):
     """
     Main function to calibrate options data.
 
@@ -59,7 +56,7 @@ def main(filename=None, ticker=None, underlying_price=None, **kwargs):
 
     Returns:
     --------
-    tuple : (term_structure DataFrame, iv_df DataFrame, raw_df DataFrame, forward_prices dict)
+    tuple : (term_structure DataFrame, discount_df DataFrame, raw_df DataFrame, forward_prices dict)
     """
     
     # Update with provided kwargs
@@ -77,7 +74,7 @@ def main(filename=None, ticker=None, underlying_price=None, **kwargs):
         print(f"Loaded options data from file: {filename}")
     else:
         print(f"Fetching options data for ticker: {ticker}")
-        all_options, processed_data, df, fetched_price = extract_option_data(
+        raw_df, df, fetched_price = extract_option_data(
             ticker, 
             min_days=params['min_days'], 
             min_volume=params['min_volume']
@@ -85,7 +82,7 @@ def main(filename=None, ticker=None, underlying_price=None, **kwargs):
         
         if df is None or df.empty:
             print(f"ERROR: Failed to fetch data for ticker {ticker}")
-            return None, None, None, None, None, None
+            return None, None, None, None
         
         # If underlying price wasn't provided but we fetched it, use the fetched price
         if underlying_price is None and fetched_price is not None:
@@ -108,9 +105,6 @@ def main(filename=None, ticker=None, underlying_price=None, **kwargs):
         
         # Filter out options with very low prices
         # df = df[df['Last Price'] > 0.05].copy()
-
-    # Save the raw dataframe
-    raw_df = df.copy()
     
     # Set underlying price
     if underlying_price is not None:
@@ -158,7 +152,7 @@ def main(filename=None, ticker=None, underlying_price=None, **kwargs):
 
     if term_structure.empty:
         print("ERROR: Failed to build term structure. Exiting.")
-        return None, None, raw_df, all_options, processed_data, calibrated_forwards
+        return None, None, raw_df, calibrated_forwards
 
     # Print term structure
     print("\nTerm Structure of Discount Rates:")
@@ -174,17 +168,15 @@ def main(filename=None, ticker=None, underlying_price=None, **kwargs):
     # Calculate implied volatilities using the calibrated term structure
     iv_start = time.time()
     # Just create option data with discount rates (much faster)
-    iv_df = create_option_data_with_rates(df, S, term_structure, reference_date)
+    discount_df = create_option_data_with_rates(df, S, term_structure, reference_date)
     timings['data_preparation'] = time.time() - iv_start
-    if iv_df.empty:
+    if discount_df.empty:
         print("WARNING: No valid option data created.")
-        return term_structure, None, raw_df, all_options, processed_data,calibrated_forwards   
-    
+        return term_structure, None, raw_df, calibrated_forwards   
 
-    iv_df = create_option_data_with_rates(df, S, term_structure, reference_date)
-    iv_df['Forward Price'] = iv_df['Expiry'].map(lambda x: calibrated_forwards.get(x, S))
-    iv_df['Forward Ratio'] = iv_df['Forward Price'] / S
-    iv_df['Moneyness Forward'] = iv_df['Strike'] / iv_df['Forward Price'] - 1.0
+    discount_df['Forward Price'] = discount_df['Expiry'].map(lambda x: calibrated_forwards.get(x, S))
+    discount_df['Forward Ratio'] = discount_df['Forward Price'] / S
+    discount_df['Moneyness Forward'] = discount_df['Strike'] / discount_df['Forward Price'] - 1.0
 
     total_time = time.time() - start_time
     print(f"\nAnalysis completed in {total_time:.2f} seconds.")
@@ -197,15 +189,15 @@ def main(filename=None, ticker=None, underlying_price=None, **kwargs):
             term_structure.to_csv(params['output_file'], index=False)
             print(f"Term structure saved to {params['output_file']}")
 
-        if iv_df is not None:
-            iv_df.to_csv(params['iv_output_file'], index=False)
+        if discount_df is not None:
+            discount_df.to_csv(params['iv_output_file'], index=False)
             print(f"Implied volatilities saved to {params['iv_output_file']}")
             
         if raw_df is not None:
             raw_df.to_csv(params['raw_output_file'], index=False)
             print(f"Raw options data saved to {params['raw_output_file']}")
 
-    return term_structure, iv_df, raw_df, all_options, processed_data, calibrated_forwards
+    return term_structure, discount_df, raw_df, calibrated_forwards
 
 
 # Add command-line interface if run directly
@@ -233,7 +225,7 @@ if __name__ == "__main__":
     if args.filename is None and args.ticker is None:
         parser.error("Either --filename or --ticker must be provided")
 
-    term_structure, iv_df, raw_df, all_options, processed_data, forward_prices = main(
+    term_structure, discount_df, raw_df, forward_prices = calibrate(
         filename=args.filename, 
         ticker=args.ticker,
         underlying_price=args.price, 
