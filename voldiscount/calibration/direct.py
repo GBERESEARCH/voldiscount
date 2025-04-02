@@ -42,8 +42,6 @@ def direct_discount_rate_calibration(df, S, **kwargs):
 
     print("Performing direct discount rate calibration with ATM representative pairs")
     
-    print(df.columns)
-    print(params['reference_date'])
     # Filter by reference date if specified
     if 'Last Trade Date' in df.columns and params['reference_date'] is not None:
         # Convert reference_date to datetime if it's a string
