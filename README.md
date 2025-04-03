@@ -1,228 +1,388 @@
-# Put-Call Parity Discount Rate Calibration Tool
+# VolDiscount: Option-Based Discount Rate Calibration Tool
 
 ## Overview
 
-This application extracts, calibrates, and analyzes discount rates from option prices using put-call parity. It addresses a critical problem in options trading and volatility surface calibration: theoretical risk-free rates rarely align with market-implied discount rates across option expiries. The calibrated rates enable accurate implied volatility calculations and proper volatility surface construction.
+VolDiscount is a robust, high-performance tool for calibrating risk-neutral discount rates from options markets using put-call parity (PCP) relationships. The library extracts the term structure of discount rates implied by option prices, which can be used for:
 
-## Technical Background
+- More accurate pricing of derivatives
+- Calculation of consistent implied volatilities across strikes and expiries
+- Extraction of forward prices
+- Risk management and valuation adjustments
 
-### Put-Call Parity and Discount Rates
+The library implements two complementary calibration methodologies, both executed simultaneously:
 
-Put-call parity is a fundamental arbitrage relationship in option pricing that must hold in efficient markets:
+1. **Direct calibration**: Optimizes discount rates independently for each expiry, minimizing implied volatility differences between corresponding put and call pairs.
 
+2. **Smooth curve calibration**: Implements a Nelson-Siegel parametric model that fits a consistent yield curve across all expiries simultaneously, ideal for noisy or inconsistent option data.
+
+Both methods' results are provided in parallel, allowing direct comparison and selection of the most appropriate discount rate for each specific use case.
+
+## Installation
+
+### Prerequisites
+
+- Python 3.13
+- pandas
+- numpy
+- scipy
+- yfinance (for ticker data fetching)
+- fastapi, uvicorn (for API functionality)
+
+### Install from source
+
+```bash
+git clone https://github.com/GBERESEARCH/voldiscount.git 
+cd voldiscount
+pip install -e .
 ```
-C - P = S * e^(-q*T) - K * e^(-r*T)
-```
 
-Where:
-- C = Call price
-- P = Put price
-- S = Underlying price
-- K = Strike price
-- r = Risk-free interest rate
-- q = Dividend/repo rate
-- T = Time to expiry in years
+## Core Features
 
-By observing market prices of put-call pairs at equivalent strikes, we can solve for the discount rate (r) that satisfies this relationship. This market-implied rate typically varies across different option expiries, creating a term structure that more accurately reflects trading conditions than theoretical rates.
+- **Multiple data sources**: Process option data from CSV files or fetch directly from Yahoo Finance
+- **Dual calibration execution**: Both direct per-expiry calibration and smooth Nelson-Siegel curve fitting run simultaneously
+- **Comparative output**: Access both direct and smooth discount rates for each option in a single dataset
+- **Discount rate extraction**: Calculate risk-neutral discount rates from option prices using put-call parity
+- **Forward price determination**: Extract implied forward prices for each expiry from both methods
+- **Implied volatility calculation**: Compute consistent implied volatilities using either calibrated discount rate
+- **Multiple interfaces**: Access functionality via command-line, Python API, or HTTP API
+- **Detailed diagnostics**: Comprehensive output including term structures, calibration metrics, and execution statistics
 
-## Architecture
-
-The application follows a modular design with specialized components:
-
-1. **Interfaces**:
-   - **CLI Interface** (`calibrate.py`): Command-line entry point
-   - **Class Interface** (`voldiscount.py`): Object-oriented wrapper for programmatic use
-   - **API Interface** (`calibration_api.py`): FastAPI-based REST endpoints
-
-2. **Core Components**:
-   - **Option Data Extraction** (`option_extractor.py`): Fetches option chains from Yahoo Finance
-   - **Black-Scholes Pricing** (`black_scholes.py`): Option pricing and implied volatility calculations
-   - **Put-Call Parity** (`pcp.py`): Implementation of parity relationships
-   - **Utility Functions** (`utils.py`): Data standardization and processing
-
-3. **Calibration Engine**:
-   - **Direct Calibration** (`direct.py`): Per-tenor discount rate optimization
-   - **Forward Pricing** (`forward_pricing.py`): Forward price calculation
-   - **Interpolation** (`interpolation.py`): Rate interpolation for missing expiries
-   - **Pair Selection** (`pair_selection.py`): Optimal put-call pair identification
-
-4. **Configuration**:
-   - **Centralized Parameters** (`config.py`): Default settings and constraints
-
-## Implementation Details
-
-### Discount Rate Calibration Algorithm
-
-The direct calibration process follows these steps:
-
-1. **Option Pair Selection**: For each expiry, identify put-call pairs with identical or similar strikes.
-   - For exact strike matches: Use identical strikes for perfect parity.
-   - For approximate matches: Use close strike pairs below a configurable threshold.
-   - Weight pairs by liquidity (volume/open interest) and ATM proximity.
-
-2. **Rate Optimization**: For each expiry, determine the discount rate that minimizes implied volatility differences between put-call pairs:
-   ```python
-   def objective_function(rate):
-       put_iv = implied_volatility(put_price, S, K, T, rate, 'put')
-       call_iv = implied_volatility(call_price, S, K, T, rate, 'call')
-       return abs(put_iv - call_iv)
-   ```
-
-3. **Forward Price Calculation**: Derive forward prices from calibrated discount rates:
-   ```
-   Forward = Strike + (Call - Put) / discount_factor
-   ```
-
-4. **Term Structure Interpolation**: For expiries without sufficient option data:
-   - Linear interpolation for intermediate expiries
-   - Extrapolation for near and far expiries
-
-### Implied Volatility Calculation
-
-After discount rate calibration, the tool computes implied volatilities for all options using the calibrated term structure:
-
-1. Map each option to its expiry-specific discount rate
-2. Calculate implied volatility using the Black-Scholes model with the proper discount rate
-3. Add forward-price-based moneyness metrics for accurate volatility surface construction
-
-## Usage Guide
+## Usage
 
 ### Command Line Interface
 
+#### Calibrate from a ticker symbol:
+
 ```bash
-python calibrate.py --ticker AAPL --price 175.0 --save
+python -m voldiscount.calibrate --ticker AAPL --min-days 7 --min-volume 10 --save --output aapl_term_structure.csv
 ```
 
-Key parameters:
-- `--filename`: Path to CSV with option data (alternative to ticker)
-- `--ticker`: Stock symbol for fetching live option data
-- `--price`: Underlying price (optional, auto-fetched if not provided)
-- `--rate`: Initial discount rate guess (default 0.05)
-- `--min-days`: Minimum days to expiry (default 7)
-- `--min-volume`: Minimum option volume (default 10)
-- `--save`: Save results to CSV files
-- `--monthlies`: Use only standard monthly expirations (default True)
-- `--all-expiries`: Use all expiry dates (overrides --monthlies)
+#### Calibrate from a CSV file:
 
-### Class Interface
+```bash
+python -m voldiscount.calibrate --filename options_data.csv --price 150.75 --save
+```
+
+#### Command Line Arguments:
+
+| Argument | Description | Default |
+|----------|-------------|---------|
+| `--filename` | Path to CSV file with options data | None |
+| `--ticker` | Stock ticker to fetch option data for | None |
+| `--price` | Underlying price | Auto-detected |
+| `--rate` | Initial discount rate guess | 0.05 |
+| `--min-days` | Minimum days to expiry when fetching from ticker | 7 |
+| `--min-volume` | Minimum volume when fetching from ticker | 10 |
+| `--output` | Output CSV file for term structure | term_structure.csv |
+| `--iv-output` | Output CSV file for IVs | implied_volatilities.csv |
+| `--debug` | Enable debug output | False |
+| `--save` | Save results to CSV files | False |
+| `--reference-date` | Reference date for options (YYYY-MM-DD) | Latest date |
+| `--monthlies` | Use only standard monthly options (3rd Friday) | True |
+| `--all-expiries` | Use all available expiry dates | False |
+
+### Python API
 
 ```python
 from voldiscount import VolDiscount
 
-# Initialize with ticker
-vd = VolDiscount(ticker="AAPL", underlying_price=175.0, save_output=True)
+# Initialize from ticker
+vd = VolDiscount(
+    ticker='AAPL',
+    min_days=7,
+    min_volume=10,
+    save_output=True,
+    output_file='aapl_term_structure.csv'
+)
 
-# Access results
-term_structure = vd.get_term_structure()
-option_data = vd.get_data_with_rates()
-forward_prices = vd.get_forward_prices()
+# Get results
+direct_term_structure = vd.get_direct_term_structure()
+smooth_term_structure = vd.get_smooth_term_structure()
+options_with_rates = vd.get_data_with_rates()
+direct_forwards = vd.get_direct_forwards()
+smooth_forwards = vd.get_smooth_forwards()
+
+# Access both discount rates for a specific option
+option = options_with_rates.iloc[0]
+direct_rate = option['Direct Discount Rate']
+smooth_rate = option['Smooth Discount Rate']
+
+# Compute implied volatility using either rate
+from voldiscount.core.black_scholes import implied_volatility
+
+iv_direct = implied_volatility(
+    price=option['Last Price'], 
+    S=option['Spot Price'], 
+    K=option['Strike'], 
+    T=option['Years'], 
+    r=direct_rate,
+    option_type=option['Option Type'].lower(),
+    q=0
+)
+
+iv_smooth = implied_volatility(
+    price=option['Last Price'], 
+    S=option['Spot Price'], 
+    K=option['Strike'], 
+    T=option['Years'], 
+    r=smooth_rate,
+    option_type=option['Option Type'].lower(),
+    q=0
+)
 ```
 
-### API Interface
+### HTTP API
 
-The application provides a FastAPI-based REST API with two main endpoints:
+Start the API server:
 
-1. **CSV Upload Calibration**:
-   ```
-   POST /csvcalibrate
-   ```
-   Upload option data as CSV with calibration parameters.
+```bash
+uvicorn voldiscount.calibration_api:app --reload
+```
 
-2. **Ticker-Based Calibration**:
-   ```
-   GET /voldiscount?ticker=AAPL&underlying_price=175.0
-   ```
-   Fetches live data and returns calibrated discount rates and implied volatilities.
+#### Endpoints:
 
-Response format:
+1. `GET /voldiscount?ticker=AAPL`
+   - Calibrates options data for the specified ticker using both methods
+   - Returns both term structures and implied volatility data with both rate types
+
+2. `POST /csvcalibrate`
+   - Upload a CSV file with options data
+   - Parameters passed as form data
+   - Returns both term structures and implied volatility data with both rate types
+
+#### API Response Structure:
+
 ```json
 {
-  "term_structure": [
+  "direct_term_structure": [
     {
       "Expiry": "2023-04-21",
-      "Days": 30,
-      "Years": 0.0822,
-      "Discount Rate": 0.0485,
-      "Forward Price": 176.23,
-      "Forward Ratio": 1.0070
+      "Days": 45,
+      "Years": 0.1233,
+      "Discount Rate": 0.0521,
+      "Put Strike": 150.0,
+      "Call Strike": 150.0,
+      "Put Price": 5.4,
+      "Call Price": 6.75,
+      "Put Implied Volatility": 0.2873,
+      "Call Implied Volatility": 0.2854,
+      "Implied Volatility Diff": 0.0019,
+      "Forward Price": 151.45,
+      "Forward Ratio": 1.0097
+    },
+    ...
+  ],
+  "smooth_term_structure": [
+    {
+      "Expiry": "2023-04-21",
+      "Days": 45,
+      "Years": 0.1233,
+      "Discount Rate": 0.0501,
+      "Forward Price": 151.26,
+      "Forward Ratio": 1.0084
     },
     ...
   ],
   "implied_volatilities": [
     {
-      "Contract Symbol": "AAPL230421C00170000",
+      "Contract Symbol": "AAPL230421C00150000",
+      "Reference Date": "2023-03-07",
+      "Last Trade Date": "2023-03-06",
+      "Spot Price": 150.0,
       "Expiry": "2023-04-21",
-      "Strike": 170.0,
+      "Days": 45,
+      "Years": 0.1233,
+      "Strike": 150.0,
       "Option Type": "call",
-      "Last Price": 7.85,
-      "Implied Volatility": 0.2368,
-      "Discount Rate": 0.0485,
-      "Moneyness Forward": -0.0355
+      "Last Price": 6.75,
+      "Bid": 6.6,
+      "Ask": 6.9,
+      "Open Interest": 15423,
+      "Volume": 423,
+      "Direct Discount Rate": 0.0521,
+      "Smooth Discount Rate": 0.0501,
+      "Direct Forward Price": 151.45,
+      "Direct Forward Ratio": 1.0097,
+      "Direct Moneyness Forward": -0.0096,
+      "Smooth Forward Price": 151.26,
+      "Smooth Forward Ratio": 1.0084,
+      "Smooth Moneyness Forward": -0.0084
     },
     ...
   ]
 }
 ```
 
-## Configuration
+## Input Data Format
 
-The application uses a centralized configuration (`config.py`) with sensible defaults:
+### CSV File Format
+
+The CSV input file should contain the following columns:
+
+| Column | Description | Required |
+|--------|-------------|----------|
+| Expiry | Option expiry date (YYYY-MM-DD) | Yes |
+| Strike | Strike price | Yes |
+| Option Type | 'call' or 'put' | Yes |
+| Last Price | Option price | Yes |
+| Last Trade Date | Last trade date (YYYY-MM-DD) | Yes |
+| Bid | Bid price | No |
+| Ask | Ask price | No |
+| Open Interest | Open interest | No |
+| Volume | Trading volume | No |
+
+## Output Format
+
+### Term Structure CSV Files
+
+Two term structure CSV files are generated:
+
+#### Direct Term Structure (`term_structure_direct.csv`):
+- `Expiry`: Expiry date
+- `Days`: Days to expiry
+- `Years`: Years to expiry
+- `Discount Rate`: Calibrated discount rate
+- `Put Strike`: Strike price of the put option used for calibration
+- `Call Strike`: Strike price of the call option used for calibration
+- `Put Price`: Price of the put option
+- `Call Price`: Price of the call option
+- `Put Implied Volatility`: Implied volatility of the put option
+- `Call Implied Volatility`: Implied volatility of the call option
+- `Implied Volatility Diff`: Absolute difference between put and call IVs
+- `Forward Price`: Implied forward price
+- `Forward Ratio`: Forward price / Spot price
+
+#### Smooth Term Structure (`term_structure_smooth.csv`):
+- `Expiry`: Expiry date
+- `Days`: Days to expiry
+- `Years`: Years to expiry
+- `Discount Rate`: Calibrated discount rate using smooth curve method
+- `Forward Price`: Implied forward price
+- `Forward Ratio`: Forward price / Spot price
+- `Method`: Calibration method ('smooth_curve')
+
+### Implied Volatilities CSV
+
+The implied volatilities CSV file contains one row per option with the following columns:
+
+- `Contract Symbol`: Option contract symbol
+- `Reference Date`: Reference date for pricing
+- `Last Trade Date`: Last trade date of the option
+- `Spot Price`: Underlying price
+- `Expiry`: Expiry date
+- `Days`: Days to expiry
+- `Years`: Years to expiry
+- `Strike`: Strike price
+- `Option Type`: 'call' or 'put'
+- `Last Price`: Option price
+- `Bid`: Bid price
+- `Ask`: Ask price
+- `Open Interest`: Open interest
+- `Volume`: Trading volume
+- `Direct Discount Rate`: Discount rate from direct calibration
+- `Smooth Discount Rate`: Discount rate from smooth curve calibration
+- `Direct Forward Price`: Forward price from direct calibration
+- `Direct Forward Ratio`: Forward price / Spot price from direct calibration
+- `Direct Moneyness Forward`: (Strike / Direct Forward price) - 1.0
+- `Smooth Forward Price`: Forward price from smooth calibration
+- `Smooth Forward Ratio`: Forward price / Spot price from smooth calibration
+- `Smooth Moneyness Forward`: (Strike / Smooth Forward price) - 1.0
+
+## Configuration Parameters
+
+Key configuration parameters with defaults can be found in `voldiscount/config/config.py`:
 
 ```python
 DEFAULT_PARAMS = {
     # Pricing parameters
-    "initial_rate": 0.05,
-    "min_rate": 0.0,
-    "max_rate": 0.2,
+    "initial_rate": 0.05,           # Initial discount rate guess
+    "min_rate": 0.0,                # Minimum allowable rate
+    "max_rate": 0.2,                # Maximum allowable rate
+    "fallback_growth": 0.03,        # Annual growth for fallback calculations
+    'consider_volume': False,       # Whether to consider volume in pair selection
+    'reference_date': None,         # Default to None (use max trade date)
+    'monthlies': True,              # Default to using only standard monthly expiries
     
     # Option selection parameters
-    "max_strike_diff_pct": 0.05,
-    "min_option_price": 0.0,
-    "min_options_per_expiry": 2,
-    "volatility_lower_bound": 0.001,
-    "volatility_upper_bound": 10,
-    
-    # Extraction parameters
-    "min_days": 7,
-    "min_volume": 0,
-    
-    # Forward Pricing
-    "min_forward_ratio": 0.5,
-    "max_forward_ratio": 2.0,
-    
-    # Boolean flags
-    "debug": True,
-    "save_output": False,
-    "monthlies": True,
+    'option_type':'call',           # Default option type
+    'q': 0.0,                       # Dividend/repo rate
+    'max_iterations': 50,           # Maximum iterations for IV calculation
+    "max_strike_diff_pct": 0.05,    # Maximum strike difference percentage
+    "min_option_price": 0.0,        # Minimum option price
+    'min_options_per_type': 3,      # Minimum options of each type per expiry
+    "min_options_per_expiry": 2,    # Minimum options required per type (puts/calls)
 }
 ```
 
-These parameters can be overridden through command-line arguments, class initialization parameters, or API request parameters.
+## Calibration Methods
 
-## Practical Applications
+Both calibration methods are executed simultaneously, providing two different discount rates for each option:
 
-The calibrated discount rates and implied volatilities enable:
+### Direct Calibration
 
-1. **Accurate Volatility Surface Construction**: By using proper discount rates, the volatility surface better reflects true market conditions.
+The direct calibration method optimizes discount rates independently for each expiry:
 
-2. **Arbitrage Detection**: Significant deviations between put and call implied volatilities may indicate trading opportunities.
+1. For each expiry date, finds all valid put-call pairs based on strike matching criteria
+2. Identifies the most ATM (at-the-money) put-call pair for each expiry
+3. Optimizes the discount rate to minimize the implied volatility difference between the put and call
+4. For expiries without valid option pairs, interpolates/extrapolates rates from surrounding expiries
 
-3. **Forward Price Analysis**: The term structure of forward prices provides insights into market expectations for dividends and financing costs.
+This method is responsive to local market conditions and provides accurate results when option data is clean and consistent for each individual expiry.
 
-4. **Risk-Free Rate Implied by Options**: The calibrated rates can be compared with Treasury yields to understand market financing conditions.
+### Smooth Curve Calibration
 
-## Example Output
+The smooth curve method fits a Nelson-Siegel parametric model across all expiries simultaneously:
 
-Term Structure:
+1. Collects all valid put-call pairs across all expiries
+2. Optimizes the parameters of the Nelson-Siegel yield curve model:
+   - β₀: Long-term rate level
+   - β₁: Short-term component
+   - β₂: Medium-term component
+   - τ: Decay factor
+3. Weighs option pairs by moneyness (favoring ATM) and strike matching (favoring exact matches)
+4. Produces a smooth, consistent term structure that can better handle noisy or inconsistent data
+
+The Nelson-Siegel model equation:
+
 ```
-Expiry      Days    Years   Discount Rate    Forward Price   Forward Ratio
-2023-04-21  30      0.0822  0.0485           176.23          1.0070
-2023-05-19  58      0.1589  0.0492           176.85          1.0106
-2023-06-16  86      0.2356  0.0498           177.56          1.0146
-2023-07-21  121     0.3315  0.0504           178.45          1.0197
-2023-09-15  177     0.4849  0.0512           179.85          1.0277
-2023-12-15  268     0.7342  0.0525           182.24          1.0414
-2024-06-21  457     1.2521  0.0540           187.65          1.0723
+r(t) = β₀ + β₁ * ((1 - e^(-t/τ))/(t/τ)) + β₂ * (((1 - e^(-t/τ))/(t/τ)) - e^(-t/τ))
 ```
 
-This output shows the term structure of discount rates increasing with time to expiry, and forward prices reflecting the market's expectations for future dividends and financing costs.
+### Choosing Between Methods
+
+The simultaneous execution of both methods provides two sets of discount rates, allowing for:
+
+1. **Comparison and validation**: Significant differences between methods may indicate data quality issues
+2. **Method selection**: Choose the method that best suits specific requirements:
+   - Direct method: When precise calibration to specific expiries is prioritized
+   - Smooth method: When consistency across the term structure is more important
+3. **Robustness checks**: Use both methods as a form of model validation
+4. **Specific use cases**:
+   - Use direct rates for pricing liquid options with high-quality data
+   - Use smooth rates for illiquid options or when interpolating between expiries
+
+## Troubleshooting
+
+### Common Issues
+
+1. **"No valid put-call pairs found"**
+   - Increase `max_strike_diff_pct` to allow wider strike differences
+   - Decrease `min_option_price` to include more options
+   - Set `monthlies=False` to include all expiry dates
+
+2. **"Failed to build term structure"**
+   - Check if there are sufficient option pairs per expiry
+   - Increase `min_days` to filter out very near-term options
+
+3. **"Significant difference between direct and smooth rates"**
+   - This may indicate market inefficiencies or data issues
+   - Examine the implied volatility differences to determine which method is more appropriate
+   - Consider using smooth rates when direct calibration shows high volatility differentials
+
+## License
+
+[MIT License](LICENSE)
+
+## Contact
+
+For issues and feature requests, please use the [GitHub issue tracker](https://github.com/GBERESEARCH/voldiscount/issues).
