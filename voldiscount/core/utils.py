@@ -38,7 +38,8 @@ def standardize_datetime(df, columns=None):
     
     return df
 
-def load_options_data(filename):
+@staticmethod
+def load_options_data(filename, reference_date=None):
     """
     Load and preprocess options data.
     
@@ -61,7 +62,8 @@ def load_options_data(filename):
     
     # Calculate days to expiry based on the last trade date
     last_trade_dates = df['Last Trade Date']
-    reference_date = last_trade_dates.max().date()
+    if reference_date is None:
+        reference_date = last_trade_dates.max().date()
     
     print(f"Reference date: {reference_date}")
     
