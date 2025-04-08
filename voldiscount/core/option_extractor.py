@@ -6,10 +6,14 @@ import pandas as pd
 import numpy as np
 import time
 import yfinance as yf
+from datetime import datetime, date
 from voldiscount.config.config import DEFAULT_PARAMS
-from typing import Dict, Any
+from typing import Dict, Any, Tuple, Optional, Union, Set
 
-def extract_option_data(ticker, **kwargs):
+def extract_option_data(
+    ticker: str, 
+    **kwargs
+) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[float]]:
     """
     Extract option chain data for a specified ticker
     
@@ -117,7 +121,8 @@ def extract_option_data(ticker, **kwargs):
         print(f"Error extracting option data for {ticker}: {e}")
         return None, None, None
 
-def _process_option_data(data, **kwargs):
+
+def _process_option_data(data: pd.DataFrame, **kwargs) -> pd.DataFrame:
     """
     Clean and process option data
     
@@ -173,7 +178,10 @@ def _process_option_data(data, **kwargs):
     
     return data
 
-def _format_output(data):
+
+def _format_output(
+    data: pd.DataFrame
+) -> pd.DataFrame:
     """
     Format data for output with selected columns
     
@@ -195,7 +203,10 @@ def _format_output(data):
     
     return data[valid_columns]
 
-def from_paste_data(text_data):
+
+def from_paste_data(
+    text_data: str
+) -> pd.DataFrame:
     """
     Parse option data from pasted text
     
@@ -223,13 +234,59 @@ def from_paste_data(text_data):
         
     return df
 
-def create_option_data_with_rates(df, S, term_structure, reference_date, expiries_to_exclude=None):
+
+def create_option_data_with_rates(
+    df: pd.DataFrame, 
+    S: float, 
+    term_structure: pd.DataFrame, 
+    reference_date: Union[str, datetime, date], 
+    expiries_to_exclude: Optional[Set[pd.Timestamp]] = None, 
+    include_both_rates: bool = False
+) -> pd.DataFrame:
     """
-    Create a dataframe where each row is an option with the appropriate discount rate.
+    Create a dataframe where each row is an option with the appropriate discount rate(s).
+    
+    Parameters:
+    -----------
+    df : pandas.DataFrame
+        Original options data
+    S : float
+        Underlying price
+    term_structure : pandas.DataFrame
+        Term structure with discount rates (may include both direct and smooth rates)
+    reference_date : datetime.date
+        Reference date for the analysis
+    expiries_to_exclude : set, optional
+        Set of expiry dates to exclude
+    include_both_rates : bool, default=False
+        Whether to include both direct and smooth discount rates in the output
+        
+    Returns:
+    --------
+    pandas.DataFrame
+        Options data with calculated discount rate(s)
     """
-    # Create a lookup dictionary for the discount rates
-    rate_lookup = {row['Expiry']: row['Discount Rate'] 
-                  for _, row in term_structure.iterrows()}
+    # Create lookup dictionaries for the discount rates
+    direct_rate_lookup = {}
+    smooth_rate_lookup = {}
+    
+    # Check which rate columns are present
+    has_direct = 'Direct Discount Rate' in term_structure.columns
+    has_smooth = 'Smooth Discount Rate' in term_structure.columns
+    has_legacy = 'Discount Rate' in term_structure.columns and not has_direct and not has_smooth
+    
+    # Create appropriate lookups based on available columns
+    if has_direct:
+        direct_rate_lookup = {row['Expiry']: row['Direct Discount Rate'] 
+                             for _, row in term_structure.iterrows()}
+    elif has_legacy:
+        # If only the legacy 'Discount Rate' column exists, use it for direct rates
+        direct_rate_lookup = {row['Expiry']: row['Discount Rate'] 
+                             for _, row in term_structure.iterrows()}
+    
+    if has_smooth:
+        smooth_rate_lookup = {row['Expiry']: row['Smooth Discount Rate'] 
+                             for _, row in term_structure.iterrows()}
     
     # Create a list to store option data
     option_data = []
@@ -245,28 +302,43 @@ def create_option_data_with_rates(df, S, term_structure, reference_date, expirie
         if pd.to_datetime(row['Last Trade Date']) < pd.to_datetime(reference_date):
             continue
         
-        # Find matching discount rate
-        if expiry in rate_lookup:
-            discount_rate = rate_lookup[expiry]
-            
-            option_data.append({
-                'Contract Symbol': row['contractSymbol'],
-                'Reference Date': reference_date,
-                'Last Trade Date': row['Last Trade Date'], 
-                'Spot Price': S,
-                'Expiry': expiry,
-                'Days': row['Days To Expiry'],
-                'Years': row['Years To Expiry'],
-                'Strike': row['Strike'],  
-                'Option Type': row['Option Type'],
-                'Last Price': row['Last Price'],
-                'Bid': row['Bid'],
-                'Ask': row['Ask'],
-                'Open Interest': row['Open Interest'],
-                'Volume': row['Volume'],
-                'Discount Rate': discount_rate,
-                'Implied Volatility': row['Implied Volatility']
-            })
+        # Find matching discount rates
+        direct_rate = direct_rate_lookup.get(expiry)
+        smooth_rate = smooth_rate_lookup.get(expiry)
+        
+        # Skip if no rates are available for this expiry
+        if direct_rate is None and smooth_rate is None and not include_both_rates:
+            continue
+        
+        # Create the option data dictionary
+        option_dict = {
+            'Contract Symbol': row.get('contractSymbol', None),
+            'Reference Date': reference_date,
+            'Last Trade Date': row['Last Trade Date'], 
+            'Spot Price': S,
+            'Expiry': expiry,
+            'Days': row['Days To Expiry'],
+            'Years': row['Years To Expiry'],
+            'Strike': row['Strike'],  
+            'Option Type': row['Option Type'],
+            'Last Price': row['Last Price'],
+            'Bid': row.get('Bid', None),
+            'Ask': row.get('Ask', None),
+            'Open Interest': row.get('Open Interest', None),
+            'Volume': row.get('Volume', None),
+            'Implied Volatility': row.get('Implied Volatility', None)
+        }
+        
+        # Add the appropriate discount rate(s)
+        if include_both_rates:
+            option_dict['Direct Discount Rate'] = direct_rate
+            option_dict['Smooth Discount Rate'] = smooth_rate
+        elif direct_rate is not None:
+            option_dict['Discount Rate'] = direct_rate
+        elif smooth_rate is not None:
+            option_dict['Discount Rate'] = smooth_rate
+        
+        option_data.append(option_dict)
     
     # Create dataframe of option data with rates
     option_df = pd.DataFrame(option_data)

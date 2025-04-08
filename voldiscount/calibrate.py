@@ -4,16 +4,22 @@ Main CLI interface for the PCP calibration tool
 import pandas as pd
 import argparse
 import time
-from voldiscount.core.utils import load_options_data, standardize_datetime
 from voldiscount.calibration.direct import direct_discount_rate_calibration
-from voldiscount.core.option_extractor import extract_option_data, create_option_data_with_rates
+from voldiscount.calibration.smooth import smooth_curve_calibration
 from voldiscount.config.config import DEFAULT_PARAMS
-from typing import Dict, Any
+from voldiscount.core.option_extractor import extract_option_data, create_option_data_with_rates
+from voldiscount.core.utils import load_options_data, standardize_datetime
+from typing import Dict, Any, Tuple, Optional
 
 
-def calibrate(filename=None, ticker=None, underlying_price=None, **kwargs):
+def calibrate(
+    filename: Optional[str] = None, 
+    ticker: Optional[str] = None, 
+    underlying_price: Optional[float] = None, 
+    **kwargs
+) -> Tuple[Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[pd.DataFrame], Optional[Dict[pd.Timestamp, float]], Optional[Dict[pd.Timestamp, float]]]:
     """
-    Main function to calibrate options data.
+    Main function to calibrate options data using both direct and smooth methods.
 
     Parameters:
     -----------
@@ -24,39 +30,13 @@ def calibrate(filename=None, ticker=None, underlying_price=None, **kwargs):
     underlying_price : float or None
         Underlying price, if None will be estimated
     **kwargs : dict
-        Additional parameters:
-            initial_rate : float
-                Initial guess for discount rates (annualized)
-            min_days : int
-                Minimum days to expiry for options when fetching from ticker
-            min_volume : int
-                Minimum trading volume for options when fetching from ticker
-            debug : bool
-                Whether to print debug information
-            best_pair_only : bool
-                Whether to use only the most ATM pair for each expiry
-            save_output : bool
-                Whether to save results to CSV files
-            output_file : str
-                Filename for term structure output
-            iv_output_file : str
-                Filename for implied volatilities output
-            raw_output_file : str
-                Filename for raw options data output
-            skip_iv_calculation : bool
-                Whether to skip the IV calculation and just return option data with rates
-            calibration_method : str, 'joint' or 'direct'
-                Whether to use joint calibration for the smoothest curve or direct to minimize IV differences per tenor
-            use_forwards : bool
-                Whether to use forward prices instead of spot for moneyness calculation
-            consider_volume : bool
-                Whether to consider volume/open interest in pair selection
-            min_pair_volume : int
-                Minimum combined volume for a pair to be considered
+        Additional parameters (see DEFAULT_PARAMS for details)
 
     Returns:
     --------
-    tuple : (term_structure DataFrame, discount_df DataFrame, raw_df DataFrame, forward_prices dict)
+    tuple : (direct_term_structure DataFrame, smooth_term_structure DataFrame, 
+             discount_df DataFrame, raw_df DataFrame, 
+             direct_forwards dict, smooth_forwards dict)
     """
     
     # Update with provided kwargs
@@ -72,17 +52,18 @@ def calibrate(filename=None, ticker=None, underlying_price=None, **kwargs):
     if filename is not None:
         df, reference_date = load_options_data(filename)
         print(f"Loaded options data from file: {filename}")
+        raw_df = df  # For consistent return structure
     else:
         print(f"Fetching options data for ticker: {ticker}")
         raw_df, df, fetched_price = extract_option_data(
-            ticker, 
+            ticker,  #type: ignore
             min_days=params['min_days'], 
             min_volume=params['min_volume']
         )
         
         if df is None or df.empty:
             print(f"ERROR: Failed to fetch data for ticker {ticker}")
-            return None, None, None, None
+            return None, None, None, None, None, None
         
         # If underlying price wasn't provided but we fetched it, use the fetched price
         if underlying_price is None and fetched_price is not None:
@@ -102,9 +83,6 @@ def calibrate(filename=None, ticker=None, underlying_price=None, **kwargs):
         # Add expiry metrics
         df['Days To Expiry'] = (df['Expiry'] - pd.Timestamp(reference_date)).dt.days
         df['Years To Expiry'] = df['Days To Expiry'] / 365.0
-        
-        # Filter out options with very low prices
-        # df = df[df['Last Price'] > 0.05].copy()
     
     # Set underlying price
     if underlying_price is not None:
@@ -130,74 +108,192 @@ def calibrate(filename=None, ticker=None, underlying_price=None, **kwargs):
     timings = {}
     timings['pre_calibration'] = time.time() - start_time
     
-    calibration_start = time.time()
-
-    # Direct "dirty fit" calibration for best IV matches
+    # Calibration arguments
     calibration_args = {
         'min_option_price': params['min_option_price'],
         'min_options_per_expiry': params['min_options_per_expiry'],
-        'reference_date': params['reference_date'],
-        'monthlies': params['monthlies']
+        'reference_date': params.get('reference_date', reference_date),
+        'monthlies': params['monthlies'],
+        'max_strike_diff_pct': params['max_strike_diff_pct'],
+        'consider_volume': params['consider_volume'],
+        'min_pair_volume': params['min_pair_volume'],
+        'debug': params['debug']
     }
-    term_structure = direct_discount_rate_calibration(df, S, **calibration_args)
-
+    
+    # Start calibration - run both methods
+    calibration_start = time.time()
+    
+    # Run direct calibration first
+    print("Running direct discount rate calibration...")
+    direct_term_structure = direct_discount_rate_calibration(df, S, **calibration_args)
+    
+    # Run smooth curve calibration
+    print("\nRunning smooth curve calibration...")
+    smooth_term_structure = smooth_curve_calibration(df, S, **calibration_args)
+    
     timings['calibration'] = time.time() - calibration_start
 
-    # Standardize datetime in term structure
-    term_structure = standardize_datetime(term_structure, columns=['Expiry'])
+    # Standardize datetime in term structures
+    direct_term_structure = standardize_datetime(direct_term_structure, columns=['Expiry'])
+    smooth_term_structure = standardize_datetime(smooth_term_structure, columns=['Expiry'])
 
-    calibrated_forwards = {row['Expiry']: row['Forward Price'] 
-                       for _, row in term_structure.iterrows() 
-                       if 'Forward Price' in term_structure.columns}
+    # Extract forward prices from both term structures
+    direct_forwards = {row['Expiry']: row['Forward Price'] 
+                    for _, row in direct_term_structure.iterrows() 
+                    if 'Forward Price' in direct_term_structure.columns}
+                    
+    smooth_forwards = {row['Expiry']: row['Forward Price'] 
+                    for _, row in smooth_term_structure.iterrows() 
+                    if 'Forward Price' in smooth_term_structure.columns}
 
-    if term_structure.empty:
-        print("ERROR: Failed to build term structure. Exiting.")
-        return None, None, raw_df, calibrated_forwards
+    if direct_term_structure.empty and smooth_term_structure.empty:
+        print("ERROR: Failed to build term structure with either method. Exiting.")
+        return None, None, None, raw_df, None, None
 
-    # Print term structure
-    print("\nTerm Structure of Discount Rates:")
+    # Print direct term structure
+    print("\nDirect Calibration Term Structure:")
     cols_to_print = ['Expiry', 'Days', 'Years', 'Discount Rate', 'Forward Price', 'Forward Ratio']
-    print(term_structure[cols_to_print])
+    direct_cols = [col for col in cols_to_print if col in direct_term_structure.columns]
+    if not direct_term_structure.empty:
+        print(direct_term_structure[direct_cols])
+    else:
+        print("No valid term structure from direct calibration.")
 
-    print("\nOptions Used for Calibration:")
-    detail_cols = ['Expiry', 'Put Strike', 'Call Strike', 'Put Price', 'Call Price', 'Put Implied Volatility', 'Call Implied Volatility', 'Implied Volatility Diff']
-    # Only include columns that exist to avoid KeyError
-    valid_detail_cols = [col for col in detail_cols if col in term_structure.columns]
-    print(term_structure[valid_detail_cols])
+    # Print smooth term structure
+    print("\nSmooth Curve Term Structure:")
+    smooth_cols = [col for col in cols_to_print if col in smooth_term_structure.columns]
+    if not smooth_term_structure.empty:
+        print(smooth_term_structure[smooth_cols])
+    else:
+        print("No valid term structure from smooth curve calibration.")
 
-    # Calculate implied volatilities using the calibrated term structure
+    # Calculate implied volatilities using both calibrated term structures
     iv_start = time.time()
-    # Just create option data with discount rates (much faster)
-    discount_df = create_option_data_with_rates(df, S, term_structure, reference_date)
+    
+    # Create combined term structure with both discount rates
+    combined_term_structure = create_combined_term_structure(direct_term_structure, smooth_term_structure)
+    
+    # Create option data with both discount rates
+    discount_df = create_option_data_with_rates(
+        df, S, combined_term_structure, reference_date, 
+        include_both_rates=True  # Flag to indicate we want both rates in output
+    )
+    
     timings['data_preparation'] = time.time() - iv_start
+    
     if discount_df.empty:
         print("WARNING: No valid option data created.")
-        return term_structure, None, raw_df, calibrated_forwards   
+        return direct_term_structure, smooth_term_structure, None, raw_df, direct_forwards, smooth_forwards   
 
-    discount_df['Forward Price'] = discount_df['Expiry'].map(lambda x: calibrated_forwards.get(x, S))
-    discount_df['Forward Ratio'] = discount_df['Forward Price'] / S
-    discount_df['Moneyness Forward'] = discount_df['Strike'] / discount_df['Forward Price'] - 1.0
+    # Add forward prices and moneyness calculations for both methods
+    if not discount_df.empty:
+        # Direct method fields
+        discount_df['Direct Forward Price'] = discount_df['Expiry'].map(
+            lambda x: direct_forwards.get(x, S) if direct_forwards else S
+        )
+        discount_df['Direct Forward Ratio'] = discount_df['Direct Forward Price'] / S
+        discount_df['Direct Moneyness Forward'] = discount_df['Strike'] / discount_df['Direct Forward Price'] - 1.0
+        
+        # Smooth method fields
+        discount_df['Smooth Forward Price'] = discount_df['Expiry'].map(
+            lambda x: smooth_forwards.get(x, S) if smooth_forwards else S
+        )
+        discount_df['Smooth Forward Ratio'] = discount_df['Smooth Forward Price'] / S
+        discount_df['Smooth Moneyness Forward'] = discount_df['Strike'] / discount_df['Smooth Forward Price'] - 1.0
 
     total_time = time.time() - start_time
     print(f"\nAnalysis completed in {total_time:.2f} seconds.")
     print(f"- Data preparation: {timings['pre_calibration']:.2f} seconds")
     print(f"- Calibration: {timings['calibration']:.2f} seconds")
+    print(f"- IV calculation: {timings['data_preparation']:.2f} seconds")
 
     # Save to CSV if requested
     if params['save_output']:
-        if term_structure is not None:
-            term_structure.to_csv(params['output_file'], index=False)
-            print(f"Term structure saved to {params['output_file']}")
+        if direct_term_structure is not None:
+            direct_file = params['output_file'].replace('.csv', '_direct.csv')
+            direct_term_structure.to_csv(direct_file, index=False)
+            print(f"Direct term structure saved to {direct_file}")
+            
+        if smooth_term_structure is not None:
+            smooth_file = params['output_file'].replace('.csv', '_smooth.csv')
+            smooth_term_structure.to_csv(smooth_file, index=False)
+            print(f"Smooth term structure saved to {smooth_file}")
 
         if discount_df is not None:
             discount_df.to_csv(params['iv_output_file'], index=False)
-            print(f"Implied volatilities saved to {params['iv_output_file']}")
+            print(f"Implied volatilities with both discount rates saved to {params['iv_output_file']}")
             
         if raw_df is not None:
             raw_df.to_csv(params['raw_output_file'], index=False)
             print(f"Raw options data saved to {params['raw_output_file']}")
 
-    return term_structure, discount_df, raw_df, calibrated_forwards
+    return direct_term_structure, smooth_term_structure, discount_df, raw_df, direct_forwards, smooth_forwards
+
+
+def create_combined_term_structure(
+    direct_ts: pd.DataFrame, 
+    smooth_ts: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Create a combined term structure DataFrame with both direct and smooth discount rates.
+    
+    Parameters:
+    -----------
+    direct_ts : pd.DataFrame
+        Term structure from direct calibration
+    smooth_ts : pd.DataFrame
+        Term structure from smooth curve calibration
+        
+    Returns:
+    --------
+    pd.DataFrame : Combined term structure with both discount rates
+    """
+    # If either term structure is empty, return the non-empty one
+    if direct_ts.empty and not smooth_ts.empty:
+        # Add placeholder Direct Discount Rate column
+        smooth_ts['Direct Discount Rate'] = None
+        # Rename the existing Discount Rate column to Smooth Discount Rate
+        smooth_ts = smooth_ts.rename(columns={'Discount Rate': 'Smooth Discount Rate'})
+        return smooth_ts
+        
+    if smooth_ts.empty and not direct_ts.empty:
+        # Add placeholder Smooth Discount Rate column
+        direct_ts['Smooth Discount Rate'] = None
+        # Rename the existing Discount Rate column to Direct Discount Rate
+        direct_ts = direct_ts.rename(columns={'Discount Rate': 'Direct Discount Rate'})
+        return direct_ts
+    
+    if direct_ts.empty and smooth_ts.empty:
+        # Both are empty, return empty DataFrame with required columns
+        return pd.DataFrame(columns=['Expiry', 'Days', 'Years', 'Direct Discount Rate', 'Smooth Discount Rate'])
+    
+    # Create a combined DataFrame by merging on Expiry
+    # Start with direct term structure and rename Discount Rate column
+    direct_ts = direct_ts.rename(columns={'Discount Rate': 'Direct Discount Rate'})
+    # Rename columns in smooth term structure to avoid conflicts
+    smooth_ts = smooth_ts.rename(columns={'Discount Rate': 'Smooth Discount Rate'})
+    
+    # Columns to use from each term structure for merging
+    direct_cols = ['Expiry', 'Days', 'Years', 'Direct Discount Rate']
+    smooth_cols = ['Expiry', 'Smooth Discount Rate']
+    
+    # Merge the term structures on Expiry
+    merged = pd.merge(
+        direct_ts[direct_cols], 
+        smooth_ts[smooth_cols],
+        on='Expiry', 
+        how='outer'
+    )
+    
+    # Add any additional columns from direct_ts that might be useful
+    for col in ['Put Strike', 'Call Strike', 'Put Price', 'Call Price', 
+                'Forward Price', 'Forward Ratio']:
+        if col in direct_ts.columns:
+            merged[col] = merged['Expiry'].map(
+                direct_ts.set_index('Expiry')[col].to_dict()
+            )
+    
+    return merged
 
 
 # Add command-line interface if run directly
@@ -225,7 +321,7 @@ if __name__ == "__main__":
     if args.filename is None and args.ticker is None:
         parser.error("Either --filename or --ticker must be provided")
 
-    term_structure, discount_df, raw_df, forward_prices = calibrate(
+    direct_ts, smooth_ts, discount_df, raw_df, direct_forwards, smooth_forwards = calibrate(
         filename=args.filename, 
         ticker=args.ticker,
         underlying_price=args.price, 

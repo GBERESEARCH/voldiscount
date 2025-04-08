@@ -12,6 +12,7 @@ DEFAULT_PARAMS = {
     'consider_volume': False,
     'reference_date': None,  # Default to None (use max trade date)
     'monthlies': True,  # Default to using only standard monthly expiries
+    'calculate_ivs': False,  # Flag to calculate implied volatilities
     
     # Option selection parameters
     'option_type':'call', 
