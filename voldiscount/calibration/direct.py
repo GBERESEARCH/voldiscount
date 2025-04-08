@@ -1,14 +1,17 @@
 import pandas as pd
 import numpy as np
-import calendar
 from scipy.optimize import minimize_scalar
-from voldiscount.core.black_scholes import implied_volatility
 from voldiscount.calibration.interpolation import interpolate_rate, extrapolate_early, extrapolate_late
 from voldiscount.calibration.pair_selection import select_option_pairs
 from voldiscount.config.config import DEFAULT_PARAMS
-from typing import Dict, Any
+from voldiscount.core.black_scholes import implied_volatility
+from typing import Dict, Any, Tuple, Set
 
-def direct_discount_rate_calibration(df, S, **kwargs):
+def direct_discount_rate_calibration(
+    df: pd.DataFrame, 
+    S: float, 
+    **kwargs
+) -> pd.DataFrame:
     """
     Calculate discount rates directly from put-call parity for each expiry using an ATM representative pair.
     
@@ -61,63 +64,7 @@ def direct_discount_rate_calibration(df, S, **kwargs):
         
         # Use filtered dataframe for further processing
         df = filtered_df
-    
-    # Filter for monthly options (3rd Friday) if requested
-    if params['monthlies'] and 'Expiry' in df.columns:
-        # Define a function to check if a date is the 3rd Friday of the month
-        def is_standard_monthly_expiry(date):
-            """
-            Check if a date is a standard monthly option expiration (normally 3rd Friday,
-            but Thursday when the Friday is a holiday).
-            
-            Parameters:
-            -----------
-            date : datetime or pandas.Timestamp
-                The date to check
-            
-            Returns:
-            --------
-            bool : True if the date is a standard monthly expiration
-            """
-            date = pd.to_datetime(date)
-            
-            # Calculate the date of the 3rd Friday
-            c = calendar.monthcalendar(date.year, date.month)
-            # Find all Fridays (weekday 4 = Friday)
-            fridays = [week[4] for week in c if week[4] != 0]
-            third_friday = pd.Timestamp(date.year, date.month, fridays[2])
-            
-            # Check if the date is the 3rd Friday
-            if date.date() == third_friday.date():
-                return True
-            
-            # Check if the date is the Thursday before the 3rd Friday (potential holiday adjustment)
-            if date.weekday() == 3:  # Thursday
-                next_day = date + pd.Timedelta(days=1)
-                if next_day.date() == third_friday.date():
-                    # This is the Thursday before the 3rd Friday
-                    # For longer-dated options, this is likely a holiday-adjusted expiry
-                    return True
-            
-            return False
-        
-        # Apply the filter using our more sophisticated function
-        monthly_df = df[df['Expiry'].apply(is_standard_monthly_expiry)].copy()
-        
-
-        monthly_count = len(monthly_df)
-        filter_count = len(df) - monthly_count
-        print(f"Filtered to {monthly_count} standard monthly expiries (removed {filter_count} non-monthly expiries)")
-        
-        # Print the retained expiries for verification
-        unique_expiries = sorted(monthly_df['Expiry'].unique())
-        print(f"Retained {len(unique_expiries)} unique monthly expiry dates:")
-        for exp in unique_expiries:
-            print(f"  - {exp}")
-        
-        # Use monthly dataframe for further processing
-        df = monthly_df
-    
+  
     # Find all valid pairs
     pairs_by_expiry = select_option_pairs(
         df=df, 
@@ -210,8 +157,18 @@ def direct_discount_rate_calibration(df, S, **kwargs):
     
     return df_term_structure
 
-def optimize_discount_rate(put_price, call_price, put_strike, call_strike, 
-                          S, reference_price, T, strikes_equal, **kwargs):
+
+def optimize_discount_rate(
+    put_price: float, 
+    call_price: float, 
+    put_strike: float, 
+    call_strike: float, 
+    S: float, 
+    reference_price: float, 
+    T: float, 
+    strikes_equal: bool, 
+    **kwargs
+) -> Tuple[float, float, float, float]:
     """
     Optimize the discount rate to match implied volatilities or satisfy put-call parity.
     """
@@ -311,7 +268,12 @@ def optimize_discount_rate(put_price, call_price, put_strike, call_strike,
     
     return optimal_rate, put_iv, call_iv, iv_diff
 
-def apply_interpolation(df_term_structure, df_original, missing_expiries):
+
+def apply_interpolation(
+    df_term_structure: pd.DataFrame, 
+    df_original: pd.DataFrame, 
+    missing_expiries: Set[pd.Timestamp]
+) -> pd.DataFrame:
     """
     Apply interpolation for missing expiries.
     

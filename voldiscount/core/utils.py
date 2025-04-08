@@ -2,8 +2,13 @@
 General utility functions
 """
 import pandas as pd
+from datetime import datetime, date
+from typing import List, Tuple, Optional, Union
 
-def standardize_datetime(df, columns=None):
+def standardize_datetime(
+    df: pd.DataFrame, 
+    columns: Optional[List[str]] = None
+) -> pd.DataFrame:
     """
     Standardize datetime columns in a DataFrame to be timezone-naive.
     
@@ -25,9 +30,9 @@ def standardize_datetime(df, columns=None):
     
     # If no columns specified, find datetime columns
     if columns is None:
-        columns = df.select_dtypes(include=['datetime64']).columns
+        columns = df.select_dtypes(include=['datetime64']).columns #type: ignore
     
-    for col in columns:
+    for col in columns: #type: ignore
         if col in df.columns:
             try:
                 # Convert to timezone-naive, preserving local time
@@ -38,8 +43,12 @@ def standardize_datetime(df, columns=None):
     
     return df
 
+
 @staticmethod
-def load_options_data(filename, reference_date=None):
+def load_options_data(
+    filename: str, 
+    reference_date: Optional[Union[str, datetime, date]] = None
+) -> Tuple[pd.DataFrame, date]:
     """
     Load and preprocess options data.
     
@@ -68,7 +77,7 @@ def load_options_data(filename, reference_date=None):
     print(f"Reference date: {reference_date}")
     
     # Add expiry metrics
-    df['Days_To_Expiry'] = (df['Expiry'] - pd.Timestamp(reference_date)).dt.days
+    df['Days_To_Expiry'] = (df['Expiry'] - pd.Timestamp(reference_date)).dt.days #type: ignore
     df['Years_To_Expiry'] = df['Days_To_Expiry'] / 365.0
     
-    return df, reference_date
+    return df, reference_date #type: ignore

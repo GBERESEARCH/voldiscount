@@ -2,7 +2,12 @@ import pandas as pd
 from voldiscount.config.config import DEFAULT_PARAMS
 from typing import Dict, Any
 
-def interpolate_rate(df, expiry_date, days, years):
+def interpolate_rate(
+    df: pd.DataFrame, 
+    expiry_date: pd.Timestamp, 
+    days: int, 
+    years: float
+) -> pd.DataFrame:
     """
     Interpolate a discount rate for a specific expiry date
     
@@ -82,8 +87,15 @@ def interpolate_rate(df, expiry_date, days, years):
     else:
         # If all values were None, just return the original DataFrame unchanged
         return df
+    
 
-def extrapolate_early(df, expiry_date, days, years, **kwargs):
+def extrapolate_early(
+    df: pd.DataFrame, 
+    expiry_date: pd.Timestamp, 
+    days: int, 
+    years: float, 
+    **kwargs
+) -> pd.DataFrame:
     """
     Extrapolate a discount rate for an early expiry date
     
@@ -172,7 +184,14 @@ def extrapolate_early(df, expiry_date, days, years, **kwargs):
         # If all values were None, just return the original DataFrame unchanged
         return df
 
-def extrapolate_late(df, expiry_date, days, years, **kwargs):
+
+def extrapolate_late(
+    df: pd.DataFrame, 
+    expiry_date: pd.Timestamp, 
+    days: int, 
+    years: float, 
+    **kwargs
+) -> pd.DataFrame:
     """
     Extrapolate a discount rate for a late expiry date
     
@@ -262,3 +281,4 @@ def extrapolate_late(df, expiry_date, days, years, **kwargs):
     else:
         # If all values were None, just return the original DataFrame unchanged
         return df
+    

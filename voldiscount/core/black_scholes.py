@@ -7,7 +7,14 @@ from scipy.optimize import minimize_scalar
 from voldiscount.config.config import DEFAULT_PARAMS
 from typing import Dict, Any
 
-def black_scholes(S, K, T, r, sigma, **kwargs):
+def black_scholes(
+    S: float, 
+    K: float, 
+    T: float, 
+    r: float, 
+    sigma: float, 
+    **kwargs
+) -> float:
     """
     Calculate option price using Black-Scholes model.
     
@@ -56,7 +63,15 @@ def black_scholes(S, K, T, r, sigma, **kwargs):
     except (ValueError, ZeroDivisionError, OverflowError):
         return np.nan
 
-def implied_volatility(price, S, K, T, r, **kwargs):
+
+def implied_volatility(
+    price: float, 
+    S: float, 
+    K: float, 
+    T: float, 
+    r: float, 
+    **kwargs
+) -> float:
     """
     Calculate implied volatility using numerical optimization.
     """
@@ -118,3 +133,4 @@ def implied_volatility(price, S, K, T, r, **kwargs):
         
     except Exception:
         return np.nan
+    

@@ -1,7 +1,12 @@
 from voldiscount.config.config import DEFAULT_PARAMS
-from typing import Dict, Any
+from typing import Dict, Any, List
+import pandas as pd
 
-def select_option_pairs(df, S, **kwargs):
+def select_option_pairs(
+    df: pd.DataFrame, 
+    S: float, 
+    **kwargs
+) -> Dict[pd.Timestamp, List[Dict[str, Any]]]:
     """
     Find options with matching or nearly matching strikes for each expiry.
     

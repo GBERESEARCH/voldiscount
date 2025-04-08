@@ -3,7 +3,11 @@ import numpy as np
 from voldiscount.config.config import DEFAULT_PARAMS
 from typing import Dict, Any
 
-def calculate_forward_prices(df, S, **kwargs):
+def calculate_forward_prices(
+    df: pd.DataFrame, 
+    S: float, 
+    **kwargs
+) -> Dict[pd.Timestamp, float]:
     """
     Calculate forward prices for each expiry date based on put-call parity.
     

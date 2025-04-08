@@ -3,11 +3,18 @@ Put-call parity related functions
 """
 import numpy as np
 import pandas as pd
-from voldiscount.core.black_scholes import implied_volatility
 from voldiscount.config.config import DEFAULT_PARAMS
+from voldiscount.core.black_scholes import implied_volatility
 from typing import Dict, Any
 
-def calculate_q_from_pcp(put_price, call_price, strike, S, T, r):
+def calculate_q_from_pcp(
+    put_price: float, 
+    call_price: float, 
+    strike: float, 
+    S: float, 
+    T: float, 
+    r: float
+) -> float:
     """
     Calculate dividend/repo rate from put-call parity.
     
@@ -37,7 +44,13 @@ def calculate_q_from_pcp(put_price, call_price, strike, S, T, r):
    
     return q
 
-def calculate_implied_volatilities(df, S, term_structure, **kwargs):
+
+def calculate_implied_volatilities(
+    df: pd.DataFrame, 
+    S: float, 
+    term_structure: pd.DataFrame, 
+    **kwargs
+) -> pd.DataFrame:
     """
     Calculate implied volatilities for all options using the calibrated discount rates.
     
