@@ -5,13 +5,13 @@ import calendar
 import io
 import time
 from datetime import datetime, date
-from typing import Dict, List, Any, Tuple, Optional, Union, Set
+from typing import Dict, Any, Tuple, Optional, Union, Set
 
 import pandas as pd
 import numpy as np
 import yfinance as yf
 
-from models import Models
+from voldiscount.models import Models
 
 implied_volatility = Models.implied_volatility
 standardize_datetime = Models.standardize_datetime

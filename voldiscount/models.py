@@ -9,7 +9,7 @@ import pandas as pd
 from scipy.stats import norm
 from scipy.optimize import minimize_scalar
 
-from vol_params import DEFAULT_PARAMS
+from voldiscount.vol_params import DEFAULT_PARAMS
 
 # pylint: disable=invalid-name
 # pylint: disable=R0913, R0917

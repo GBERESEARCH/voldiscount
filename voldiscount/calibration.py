@@ -15,9 +15,9 @@ import numpy as np
 import pandas as pd
 from scipy.optimize import minimize, minimize_scalar
 
-from interpolation import Interpolation
-from models import Models
-from pair_selection import PairSelection
+from voldiscount.interpolation import Interpolation
+from voldiscount.models import Models
+from voldiscount.pair_selection import PairSelection
 
 standardize_datetime = Models.standardize_datetime
 
@@ -66,15 +66,18 @@ class Calibration():
 
         # Run direct calibration
         print("Running direct discount rate calibration...")
-        direct_term_structure, params = cls.direct_curve_calibration(params=params, tables=tables)
+        direct_term_structure, params = cls.direct_curve_calibration(
+            params=params, tables=tables)
 
         # Run smooth curve calibration
         print("\nRunning smooth curve calibration...")
-        smooth_term_structure, params = cls.smooth_curve_calibration(params=params, tables=tables)
+        smooth_term_structure, params = cls.smooth_curve_calibration(
+            params=params, tables=tables)
 
         # Standardize datetime in term structures
         if direct_term_structure is not None and not direct_term_structure.empty:
-            direct_term_structure = standardize_datetime(direct_term_structure, columns=['Expiry'])
+            direct_term_structure = standardize_datetime(
+                direct_term_structure, columns=['Expiry'])
             direct_forwards = {
                 row['Expiry']: row['Forward Price']
                 for _, row in direct_term_structure.iterrows()
@@ -84,7 +87,8 @@ class Calibration():
             tables['direct_forwards'] = direct_forwards
 
         if smooth_term_structure is not None and not smooth_term_structure.empty:
-            smooth_term_structure = standardize_datetime(smooth_term_structure, columns=['Expiry'])
+            smooth_term_structure = standardize_datetime(
+                smooth_term_structure, columns=['Expiry'])
             smooth_forwards = {
                 row['Expiry']: row['Forward Price']
                 for _, row in smooth_term_structure.iterrows()
@@ -273,7 +277,8 @@ class Calibration():
         """
         opt_params = {}
         opt_params['reference_price'] = S
-        opt_params['strikes_equal'] = abs(atm_pair['put_strike'] - atm_pair['call_strike']) < 0.01
+        opt_params['strikes_equal'] = abs(
+            atm_pair['put_strike'] - atm_pair['call_strike']) < 0.01
 
         # Define objective functions with unique names
         def objective_equal_strikes(rate):
@@ -487,7 +492,8 @@ class Calibration():
             pairs_by_expiry=pairs_by_expiry, S=params['underlying_price'])
 
         time_data['step1_time'] = time.time() - time_data['start_time']
-        print(f"Step 1 completed in {time_data['step1_time']:.2f} seconds, "         f"found {len(tenor_rates)} valid tenor rates")
+        print(f"Step 1 completed in {time_data['step1_time']:.2f} seconds, "
+              f"found {len(tenor_rates)} valid tenor rates")
 
         # Check if we have enough tenor rates for curve fitting
         if len(tenor_rates) < 4:

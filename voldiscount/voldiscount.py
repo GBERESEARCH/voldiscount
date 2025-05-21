@@ -5,9 +5,9 @@ from typing import Dict, Optional
 
 import pandas as pd
 
-from data import Data
-from calibration import Calibration
-from vol_params import DEFAULT_PARAMS
+from voldiscount.data import Data
+from voldiscount.calibration import Calibration
+from voldiscount.vol_params import DEFAULT_PARAMS
 
 
 class VolDiscount:
