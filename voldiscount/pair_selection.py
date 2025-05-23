@@ -19,7 +19,7 @@ class PairSelection():
         df: pd.DataFrame,
         tables: Dict[str, Any],
         params: Dict[str, Any],
-    ) -> Tuple[Dict[pd.Timestamp, List[Dict[str, Any]]], Dict[str, Any], Dict[str, Any]]:
+    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """
         Find options with matching or nearly matching strikes for each expiry.
 
@@ -78,7 +78,7 @@ class PairSelection():
         for col in required_cols:
             if col not in df.columns:
                 print(f"ERROR: Missing required column '{col}' in options data")
-                return {}, params, tables
+                return params, tables
 
         # Ensure Option Type is properly formatted
         if not df['Option Type'].str.lower().isin(['call', 'put']).all():
@@ -156,7 +156,9 @@ class PairSelection():
             f"{params['diagnostics']['expiries_with_valid_pairs']}")
         print(f"  Selection method: {params['pair_selection_method']}")
 
-        return pairs_by_expiry, params, tables
+        tables['pairs_by_expiry'] = pairs_by_expiry
+
+        return params, tables
 
 
     @staticmethod
@@ -240,110 +242,99 @@ class PairSelection():
         return all_pairs
 
 
+    @classmethod
+    def _get_reference_time(cls, df: pd.DataFrame, params: Dict) -> pd.Timestamp:
+        """Calculate reference time based on pair-level liquidity metrics."""
+        pair_metrics = cls._calculate_pair_metrics(df)
+
+        if not pair_metrics:
+            return pd.to_datetime(df['Last Trade Date']).max()
+
+        top_pairs = cls._select_top_pairs(pair_metrics, params)
+        reference_time = cls._compute_reference_timestamp(top_pairs)
+
+        cls._log_reference_diagnostics(df, top_pairs, reference_time)  # Pass df for total count
+        return reference_time
+
+
+    @classmethod
+    def _calculate_pair_metrics(cls, df: pd.DataFrame) -> List[Dict]:
+        """Calculate volume and timing metrics for each strike pair."""
+        pair_metrics = []
+
+        for strike in df['Strike'].unique():
+            strike_data = df[df['Strike'] == strike]
+            puts = strike_data[strike_data['Option Type'].str.lower() == 'put']
+            calls = strike_data[strike_data['Option Type'].str.lower() == 'call']
+
+            if len(puts) > 0 and len(calls) > 0:
+                pair_metrics.append(cls._create_pair_metric(strike, puts, calls))
+
+        return pair_metrics
+
+
     @staticmethod
-    def _get_reference_time(df: pd.DataFrame, params: Dict) -> pd.Timestamp:
-        """
-        Get average last trade time of highest volume strikes.
+    def _create_pair_metric(strike: float, puts: pd.DataFrame, calls: pd.DataFrame) -> Dict:
+        """Create detailed pair metric dictionary for single strike."""
+        put_volume = puts['Volume'].sum()
+        call_volume = calls['Volume'].sum()
+        put_latest = puts['Last Trade Date'].max()
+        call_latest = calls['Last Trade Date'].max()
 
-        Parameters:
-        -----------
-        df : DataFrame
-            Options data with 'Last Trade Date', 'Strike', and 'Volume' columns
-        params : dict
-            Configuration parameters from DEFAULT_PARAMS
+        return {
+            'strike': strike,
+            'put_volume': put_volume,
+            'call_volume': call_volume,
+            'pair_volume': min(put_volume, call_volume),
+            'put_latest': put_latest,
+            'call_latest': call_latest,
+            'pair_latest_trade': min(put_latest, call_latest)
+        }
 
-        Returns:
-        --------
-        pd.Timestamp : Reference time for recency comparisons
-        """
-        # # Ensure required columns exist
-        # if not all(col in df.columns for col in ['Last Trade Date', 'Strike', 'Volume']):
-        #     # Fall back to maximum time if columns missing
-        #     return pd.to_datetime(df['Last Trade Date']).max()
 
-        # # Number of high volume strikes to consider
-        # top_n_strikes = params['reference_time_strikes']
+    @staticmethod
+    def _select_top_pairs(pair_metrics: List[Dict], params: Dict) -> List[Dict]:
+        """Select top N pairs by volume, filtered by minimum threshold."""
+        filtered_pairs = [
+            pair for pair in pair_metrics
+            if pair['pair_volume'] >= params.get('min_pair_volume_for_reference', 0)
+        ]
 
-        # # Group by strike and sum volumes
-        # strike_volumes = df.groupby('Strike')['Volume'].sum().reset_index()
+        sorted_pairs = sorted(filtered_pairs, key=lambda x: x['pair_volume'], reverse=True)
+        return sorted_pairs[:params['reference_time_strikes']]
 
-        # # Get the top N strikes by volume
-        # top_strikes = strike_volumes.nlargest(top_n_strikes, 'Volume')['Strike'].values
 
-        # # Filter dataframe to these strikes
-        # top_strike_data = df[df['Strike'].isin(top_strikes)]
+    @staticmethod
+    def _compute_reference_timestamp(top_pairs: List[Dict]) -> pd.Timestamp:
+        """Compute average timestamp from pair trade times."""
+        trade_times = [pair['pair_latest_trade'] for pair in top_pairs]
+        timestamps = [t.timestamp() for t in trade_times]
+        avg_timestamp = sum(timestamps) / len(timestamps)
 
-        # # Get the latest trade for each of these strikes
-        # latest_trades = top_strike_data.groupby('Strike')['Last Trade Date'].max()
+        return pd.Timestamp.fromtimestamp(avg_timestamp, tz='UTC').tz_localize(None)
 
-        # # If we have valid timestamps, calculate average
-        # if not latest_trades.empty and all(isinstance(t, pd.Timestamp) for t in latest_trades):
-        #     # Convert all timestamps to UNIX timestamp (seconds since epoch)
-        #     timestamps = [t.timestamp() for t in latest_trades]
 
-        #     # Calculate average timestamp
-        #     avg_timestamp = sum(timestamps) / len(timestamps)
-
-        #     # Convert back to pandas Timestamp
-        #     return pd.Timestamp.fromtimestamp(avg_timestamp)
-
-        # # Fallback to maximum time if calculation fails
-        # return pd.to_datetime(df['Last Trade Date']).max()
-
-        print("\n_get_reference_time diagnostics:")
+    @staticmethod
+    def _log_reference_diagnostics(
+            df: pd.DataFrame,
+            top_pairs: List[Dict],
+            reference_time: pd.Timestamp) -> None:
+        """Log comprehensive diagnostic information for reference time calculation."""
+        print("\n_get_reference_time diagnostics (pair-based):")
         print(f"Total options in dataset: {len(df)}")
+        print(f"Using top {len(top_pairs)} strikes by pair liquidity:")
 
-        # Number of high volume strikes to consider
-        print(f"Using top {params['reference_time_strikes']} strikes by volume")
+        for pair in top_pairs:
+            print(f"  Strike: {pair['strike']}, Pair Volume: {pair['pair_volume']}")
+            print(f"    Pair Latest Trade: {pair['pair_latest_trade']}")
 
-        # Group by strike and sum volumes
-        strike_volumes = df.groupby('Strike')['Volume'].sum().reset_index()
-        print(f"Unique strikes in dataset: {len(strike_volumes)}")
-
-        # Get the top N strikes by volume
-        top_volume_strikes = strike_volumes.nlargest(
-            params['reference_time_strikes'], 'Volume')
-        print(f"Top {len(top_volume_strikes)} strikes by volume:")
-        for _, row in top_volume_strikes.iterrows():
-            print(f"  Strike: {row['Strike']}, Volume: {row['Volume']}")
-
-        # Filter dataframe to these strikes
-        top_strike_data = df[df['Strike'].isin(top_volume_strikes['Strike'].values)]
-        print(f"Options for top strikes: {len(top_strike_data)}")
-
-        # Get the latest trade for each of these strikes
-        latest_trades = top_strike_data.groupby('Strike')['Last Trade Date'].max()
-        print("Latest trade times for each top strike:")
-        for strike, trade_time in latest_trades.items():
-            print(f"  Strike: {strike}, Latest trade: {trade_time}")
-
-        # If we have valid timestamps, calculate average
-        if (not latest_trades.empty
-            and all(isinstance(t, pd.Timestamp) for t in latest_trades)):
-            # Convert all timestamps to UNIX timestamp (seconds since epoch)
-            timestamps = [t.timestamp() for t in latest_trades]
-
-            # Calculate metrics
-            max_time = pd.Timestamp.fromtimestamp(
-                max(timestamps), tz='UTC').tz_localize(None)
-            min_time = pd.Timestamp.fromtimestamp(
-                min(timestamps), tz='UTC').tz_localize(None)
-            avg_time = pd.Timestamp.fromtimestamp(
-                (sum(timestamps) / len(timestamps)), tz='UTC').tz_localize(None)
-
-            print("Timestamp analysis:")
-            print(f"  Earliest of latest trades: {min_time}")
-            print(f"  Latest of latest trades: {max_time}")
-            print(f"  Time range (max-min): {max_time - min_time}")
-            print(f"  Average timestamp: {avg_time}")
-            print(f"  Time delta from latest: {avg_time - max_time}")
-
-            # Check if average is in the future
-            latest_overall = pd.to_datetime(df['Last Trade Date']).max()
-            print(f"  Latest trade in entire dataset: {latest_overall}")
-            print(f"  Average timestamp vs. latest overall: {avg_time - latest_overall}")
-
-        return avg_time
+        if top_pairs:
+            trade_times = [p['pair_latest_trade'] for p in top_pairs]
+            print("Pair-based timestamp analysis:")
+            print(f"  Earliest pair trade: {min(trade_times)}")
+            print(f"  Latest pair trade: {max(trade_times)}")
+            print(f"  Time range: {max(trade_times) - min(trade_times)}")
+            print(f"  Average reference time: {reference_time}")
 
 
     @staticmethod

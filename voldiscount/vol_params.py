@@ -39,6 +39,7 @@ DEFAULT_PARAMS = {
     'min_pair_volume': 0,
     'best_pair_only': False,
     'close_strike_min_pairs': 3,
+    'exact_strikes': True,  # If True, only use exact strike matches for smooth calibration
 
     # Forward Pricing
     'debug_threshold': 0.0,

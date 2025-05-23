@@ -64,6 +64,14 @@ class Calibration():
         """
         calibration_start = time.time()
 
+        print("Finding option pairs for calibration...")
+        df = copy.deepcopy(tables['source_data'])
+        tables['filtered_df'] = cls._filter_df(df=df, params=params)
+
+        params, tables = PairSelection.select_option_pairs_enhanced(
+            df=tables['filtered_df'], params=params, tables=tables
+        )
+
         # Run direct calibration
         print("Running direct discount rate calibration...")
         direct_term_structure, params = cls.direct_curve_calibration(
@@ -144,44 +152,12 @@ class Calibration():
 
         print("Performing direct discount rate calibration with ATM representative pairs")
 
-        df = copy.deepcopy(tables['source_data'])
-
-        # Filter by reference date if specified
-        if 'Last Trade Date' in df.columns and params['reference_date'] is not None:
-            # Convert reference_date to datetime if it's a string
-            if isinstance(params['reference_date'], str):
-                params['reference_date'] = pd.to_datetime(params['reference_date'])
-
-            # Ensure reference_date is datetime
-            params['reference_date'] = pd.to_datetime(params['reference_date'])
-
-            # Filter to options traded on or after the reference date
-            filtered_df = df[df['Last Trade Date'] >= params['reference_date']].copy()
-
-            filtered_count = len(df) - len(filtered_df)
-            if filtered_count > 0:
-                print(f"Filtered out {filtered_count} options with trade dates "
-                      f"before {params['reference_date']}")
-            print(f"Using {len(filtered_df)} options traded on or after "
-                  f"{params['reference_date']}")
-
-            # Use filtered dataframe for further processing
-            df = filtered_df
-
-        # Find all valid pairs
-        pairs_by_expiry, params, tables = PairSelection.select_option_pairs_enhanced(
-            df=df,
-            params=params,
-            tables=tables
-        )
-
-        if not pairs_by_expiry:
+        if not tables['pairs_by_expiry']:
             print("ERROR: No valid put-call pairs found. Cannot calibrate.")
             return pd.DataFrame(), params
 
         term_structure = cls._calc_direct_term_structure(
-            pairs_by_expiry=pairs_by_expiry, params=params)
-
+            pairs_by_expiry=tables['pairs_by_expiry'], params=params)
 
         # Convert to DataFrame and sort
         df_term_structure = pd.DataFrame(term_structure).sort_values('Days')
@@ -192,7 +168,7 @@ class Calibration():
         # After creating the initial term_structure
         if not df_term_structure.empty:
             # Find all unique expiries in original data
-            all_expiries = set(df['Expiry'].unique())
+            all_expiries = set(tables['filtered_df']['Expiry'].unique())
 
             # Find expiries we have rates for
             calculated_expiries = set(df_term_structure['Expiry'].unique())
@@ -204,7 +180,7 @@ class Calibration():
                 print(f"Interpolating rates for {len(missing_expiries)} "
                       f"missing expiries")
                 df_term_structure, params = cls._apply_interpolation(
-                    df_term_structure=df_term_structure, df_original=df,
+                    df_term_structure=df_term_structure, df_original=tables['filtered_df'],
                     missing_expiries=missing_expiries, params=params)
 
         return df_term_structure, params
@@ -224,11 +200,18 @@ class Calibration():
                       f"need at least {params['min_options_per_expiry']}")
                 continue
 
-            # Find the most ATM pair
-            atm_idx = min(range(len(pairs)), key=lambda i, current_pairs=pairs:
-                abs((current_pairs[i]['put_strike']
-                     + current_pairs[i]['call_strike']) / (2 * params['underlying_price']) - 1.0))
-            atm_pair = pairs[atm_idx]
+            # First try exact matches only
+            exact_pairs = [p for p in pairs if p['is_exact_match']]
+            
+            if exact_pairs:
+                # Find most ATM among exact matches
+                atm_idx = min(range(len(exact_pairs)), key=lambda i:
+                    abs(exact_pairs[i]['put_strike'] / params['underlying_price'] - 1.0))
+                atm_pair = exact_pairs[atm_idx]
+            else:
+                # No exact matches - skip this tenor for direct method
+                print(f"No exact strike matches for {expiry} - will interpolate")
+                continue    
 
             # Calculate rate for this pair
             try:
@@ -444,6 +427,8 @@ class Calibration():
                     df_term_structure, params = interpolate_rate(
                         df_term_structure, expiry, days, years, params=params)
 
+            df_term_structure = df_term_structure.sort_values('Days').reset_index(drop=True)
+
         return df_term_structure, params
 
 
@@ -460,27 +445,16 @@ class Calibration():
         2. Fit Nelson-Siegel curve to these robust tenor-specific rates
         """
 
-        df = tables['source_data']
-
         print("Performing smooth curve calibration using two-step Nelson-Siegel approach")
 
-        df = cls._filter_df(df=df, params=params)
-
-        # Find all valid pairs
-        pairs_by_expiry, params, tables = PairSelection.select_option_pairs_enhanced(
-            df=df,
-            params=params,
-            tables=tables
-        )
-
-        if not pairs_by_expiry:
+        if not tables['pairs_by_expiry']:
             print("ERROR: No valid put-call pairs found. Cannot calibrate.")
             return pd.DataFrame(), params
 
         # Count total pairs for diagnostics
-        total_pairs = sum(len(pairs) for pairs in pairs_by_expiry.values())
+        total_pairs = sum(len(pairs) for pairs in tables['pairs_by_expiry'].values())
         print(f"Found {total_pairs} valid option pairs across "
-              f"{len(pairs_by_expiry)} expiries")
+              f"{len(tables['pairs_by_expiry'])} expiries")
 
         time_data = {}
         # Step 1: Calculate optimal discount rate for each tenor
@@ -489,11 +463,19 @@ class Calibration():
         print("Step 1: Calculating optimal discount rates per tenor...")
 
         tenor_rates = cls._calc_smooth_rates(
-            pairs_by_expiry=pairs_by_expiry, S=params['underlying_price'])
+            pairs_by_expiry=tables['pairs_by_expiry'], 
+            S=params['underlying_price'], 
+            params=params
+            )
 
         time_data['step1_time'] = time.time() - time_data['start_time']
         print(f"Step 1 completed in {time_data['step1_time']:.2f} seconds, "
               f"found {len(tenor_rates)} valid tenor rates")
+        
+        if params['exact_strikes']:
+            total_expiries = len(tables['pairs_by_expiry'])
+            print(f"Exact strikes mode: Found rates for {len(tenor_rates)} of "
+                f"{total_expiries} tenors (others will use fitted curve)")
 
         # Check if we have enough tenor rates for curve fitting
         if len(tenor_rates) < 4:
@@ -511,14 +493,14 @@ class Calibration():
         ns_params['S'] = params['underlying_price']
 
         # Get all unique expiries from original dataset
-        all_expiries = sorted(df['Expiry'].unique())
+        all_expiries = sorted(tables['filtered_df']['Expiry'].unique())
         print(f"Generating term structure for all {len(all_expiries)} "
               f"expiries in dataset")
 
         term_structure = cls._calc_smooth_term_structure(
             all_expiries=all_expiries,
-            pairs_by_expiry=pairs_by_expiry,
-            df=df,
+            pairs_by_expiry=tables['pairs_by_expiry'],
+            df=tables['filtered_df'],
             ns_params=ns_params
             )
 
@@ -559,12 +541,20 @@ class Calibration():
 
 
     @staticmethod
-    def _calc_smooth_rates(pairs_by_expiry, S):
+    def _calc_smooth_rates(pairs_by_expiry, S, params):
         tenor_rates = []
 
         for expiry, pairs in pairs_by_expiry.items():
+            # Filter for exact matches only if required
+            if params['exact_strikes']:
+                exact_pairs = [p for p in pairs if p['is_exact_match']]
+                if not exact_pairs:
+                    continue  # Skip this tenor if no exact matches
+                included_pairs = exact_pairs
+            else:
+                included_pairs = pairs
             # Sort pairs by ATM-ness
-            sorted_pairs = sorted(pairs, key=lambda p: abs(
+            sorted_pairs = sorted(included_pairs, key=lambda p: abs(
                 (p['put_strike'] + p['call_strike'])/(2*S) - 1.0))
 
             # Take top 5 most ATM pairs (or fewer if not available)
