@@ -242,7 +242,7 @@ class Calibration():
                     'Forward Ratio': round(forward_ratio, 4)
                 })
 
-            except (ValueError, ZeroDivisionError, OverflowError, RuntimeWarning) as e:
+            except (TypeError, ValueError, ZeroDivisionError, OverflowError, RuntimeWarning) as e:
                 print(f"ERROR calculating rate for expiry {expiry}: {e}")
 
         return term_structure
@@ -328,7 +328,7 @@ class Calibration():
             # Ensure initial_rate is reasonable but allow negative rates
             initial_rate = max(min(initial_rate, params['max_int_rate']),
                                params['min_int_rate'])  # Allow rates from -10% to 20%
-        except (ValueError, ZeroDivisionError, OverflowError, RuntimeWarning):
+        except (TypeError, ValueError, ZeroDivisionError, OverflowError, RuntimeWarning):
             # Fallback to a reasonable initial guess
             initial_rate = 0.05
 
@@ -593,7 +593,7 @@ class Calibration():
 
                         return (put_iv - call_iv) ** 2
 
-                    except (ValueError, ZeroDivisionError, OverflowError,
+                    except (TypeError, ValueError, ZeroDivisionError, OverflowError,
                             RuntimeWarning):
                         return 1.0  # Penalty for calculation errors
 
@@ -608,7 +608,7 @@ class Calibration():
 
                     if result.success and -0.1 <= result.x <= 0.15: #type: ignore
                         pair_rates.append(result.x) #type: ignore
-                except (ValueError, ZeroDivisionError, OverflowError,
+                except (TypeError, ValueError, ZeroDivisionError, OverflowError,
                         RuntimeWarning) as e:
                     print(f"  Error calculating rate for pair "
                           f"{pair['put_strike']}/{pair['call_strike']}: {e}")
@@ -761,7 +761,7 @@ class Calibration():
                            - atm_pair['put_price'])
                         / np.exp(-rate * years))
                     iv_params['forward_ratio'] = iv_params['forward_price'] / ns_params['S']
-                except (ValueError, ZeroDivisionError, OverflowError,
+                except (TypeError, ValueError, ZeroDivisionError, OverflowError,
                         RuntimeWarning) as e:
                     # If IV calculation fails, use theoretical forward price
                     print(f"Error calculating IVs for {expiry}: {e}")

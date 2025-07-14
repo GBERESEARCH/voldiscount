@@ -492,7 +492,7 @@ class PairSelection():
                     'years': float(put_row['Years To Expiry']),
                     'days': int(put_row['Days To Expiry'])
                 })
-            except (ValueError, ZeroDivisionError, OverflowError,
+            except (TypeError, ValueError, ZeroDivisionError, OverflowError,
                     RuntimeWarning) as e:
                 print(f"  Error processing strike {strike}: {e}")
 
@@ -630,7 +630,7 @@ class PairSelection():
                 )
 
                 pairs.append(pair)
-            except (ValueError, ZeroDivisionError, OverflowError,
+            except (TypeError, ValueError, ZeroDivisionError, OverflowError,
                     RuntimeWarning) as e:
                 print(f"  Error processing strike {strike}: {e}")
 

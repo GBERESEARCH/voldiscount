@@ -121,7 +121,7 @@ class Data():
             df['Years To Expiry'] = df['Days To Expiry'] / 365.0
 
             return df, reference_date
-        except (ValueError, ZeroDivisionError, OverflowError, RuntimeWarning) as e:
+        except (TypeError, ValueError, ZeroDivisionError, OverflowError, RuntimeWarning) as e:
             print(f"Error loading data from file: {e}")
             return None, None
 
@@ -178,7 +178,7 @@ class Data():
             df['Years To Expiry'] = df['Days To Expiry'] / 365.0
 
             return raw_df, df, fetched_price, reference_date
-        except (ValueError, ZeroDivisionError, OverflowError, RuntimeWarning) as e:
+        except (TypeError, ValueError, ZeroDivisionError, OverflowError, RuntimeWarning) as e:
             print(f"Error fetching data for ticker {ticker}: {e}")
             return None, None, None, None
 
@@ -225,7 +225,7 @@ class Data():
                 except KeyError:
                     try:
                         spot = asset.info['navPrice']
-                    except (ValueError, ZeroDivisionError, OverflowError, RuntimeWarning):
+                    except (TypeError, ValueError, ZeroDivisionError, OverflowError, RuntimeWarning):
                         spot = asset.info['previousClose']
 
             # Get option expiry dates
@@ -255,7 +255,7 @@ class Data():
                     # Add to full data
                     all_options = pd.concat([all_options, options])
 
-                except (ValueError, ZeroDivisionError, OverflowError, RuntimeWarning) as e:
+                except (TypeError, ValueError, ZeroDivisionError, OverflowError, RuntimeWarning) as e:
                     print(f"Error processing {expiry}: {e}")
 
                 # Wait to avoid rate limiting
@@ -288,7 +288,7 @@ class Data():
 
             return all_options, processed_data, spot
 
-        except (ValueError, ZeroDivisionError, OverflowError, RuntimeWarning) as e:
+        except (TypeError, ValueError, ZeroDivisionError, OverflowError, RuntimeWarning) as e:
             print(f"Error extracting option data for {ticker}: {e}")
             return None, None, None
 
@@ -856,7 +856,7 @@ class Data():
                             and params['volatility_lower_bound'] <=
                             direct_iv <= params['volatility_upper_bound']):
                             discount_df.at[idx, 'Direct IV'] = direct_iv
-                    except (ValueError, ZeroDivisionError, OverflowError, RuntimeWarning):
+                    except (TypeError, ValueError, ZeroDivisionError, OverflowError, RuntimeWarning):
                         pass
 
                 # Calculate implied volatility using Smooth Discount Rate
@@ -876,7 +876,7 @@ class Data():
                             and params['volatility_lower_bound'] <=
                             smooth_iv <= params['volatility_upper_bound']):
                             discount_df.at[idx, 'Smooth IV'] = smooth_iv
-                    except (ValueError, ZeroDivisionError, OverflowError, RuntimeWarning):
+                    except (TypeError, ValueError, ZeroDivisionError, OverflowError, RuntimeWarning):
                         pass
 
             # Count the number of options with valid IVs

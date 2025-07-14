@@ -77,7 +77,7 @@ class Models():
                          S * np.exp(-params['q'] * T) * norm.cdf(-d1))
 
             return price
-        except (ValueError, ZeroDivisionError, OverflowError, RuntimeWarning) as e:
+        except (TypeError, ValueError, ZeroDivisionError, OverflowError, RuntimeWarning) as e:
             print(f"Returning NaN due to: {str(e)}")
             return np.nan
 
@@ -151,7 +151,7 @@ class Models():
                 return result.x #type: ignore
             return np.nan
 
-        except (ValueError, ZeroDivisionError, OverflowError, RuntimeWarning) as e:
+        except (TypeError, ValueError, ZeroDivisionError, OverflowError, RuntimeWarning) as e:
             print(f"Returning NaN due to: {str(e)}")
             return np.nan
 
