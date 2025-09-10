@@ -116,6 +116,16 @@ class PairSelection():
                 expiry_df=expiry_df,
                 params=params
                 )
+            
+            # Check if expiry should be skipped
+            should_skip = (puts.empty or calls.empty or 
+                        len(puts) < params['min_options_per_type'] or 
+                        len(calls) < params['min_options_per_type'])
+            
+            if should_skip:
+                # Remove this expiry from the filtered dataframe entirely
+                tables['filtered_df'] = tables['filtered_df'][tables['filtered_df']['Expiry'] != expiry]
+                continue
 
             # Apply option filtering based on selection method
             all_pairs = cls._get_all_pairs(
