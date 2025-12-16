@@ -225,7 +225,7 @@ class Data():
                 except KeyError:
                     try:
                         spot = asset.info['navPrice']
-                    except (TypeError, ValueError, ZeroDivisionError, OverflowError, RuntimeWarning):
+                    except (KeyError, TypeError, ValueError, ZeroDivisionError, OverflowError, RuntimeWarning):
                         spot = asset.info['previousClose']
 
             # Get option expiry dates
