@@ -218,15 +218,13 @@ class Data():
                 spot = asset.info['currentPrice']
             except KeyError:
                 try:
-                    spot = (asset.info['bid'] + asset.info['ask'])/2
-                    if (abs(spot - asset.info['previousClose'])
-                        / asset.info['previousClose']) > 0.2:
-                        spot = asset.info['previousClose']
+                    spot = asset.info['regularMarketPrice']
                 except KeyError:
                     try:
                         spot = asset.info['navPrice']
                     except (KeyError, TypeError, ValueError, ZeroDivisionError, OverflowError, RuntimeWarning):
                         spot = asset.info['previousClose']
+
 
             # Get option expiry dates
             option_dates = asset.options
